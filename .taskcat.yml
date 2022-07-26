@@ -1,0 +1,22 @@
+project:
+  name: quickstart-aws-utility-meter-data-generator
+  owner: michlitz@amazon.com
+  shorten_stack_name: true
+  regions:
+  - us-east-1
+  - us-east-2
+  - us-west-2
+  parameters:
+    GenerationState: 'ENABLED'
+    GenerationInterval: 5
+    TotalDevices: 1000
+    DevicesPerWorker: 100
+    RegionalVoltage: 220
+    MinLoad: 5
+    MaxLoad: 20
+    TimestreamCreation: 'Create New'
+    TimestreamDatabaseName: 'devices'
+    TimestreamTableName: 'readings'
+tests:
+  default:
+    template: templates/device_data_generator_timestream.yaml
