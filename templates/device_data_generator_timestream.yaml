@@ -116,73 +116,9 @@ Resources:
     Properties:
       VisibilityTimeout: 3600
       MessageRetentionPeriod: 28800
-  OrchestratorLambdaRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Statement:
-          Effect: 'Allow'
-          Action:
-            - 'sts:AssumeRole'
-          Principal:
-            Service:
-              - lambda.amazonaws.com
-        Version: '2012-10-17'
-      Policies:
-        - PolicyName: 'root'
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: 'Allow'
-                Action:
-                  - 'sqs:SendMessage'
-                  - 'sqs:GetQueueAttributes'
-                Resource: !GetAtt WorkerSQSQueue.Arn
-              - Effect: 'Allow'
-                Action:
-                  - 'logs:CreateLogGroup'
-                  - 'logs:CreateLogStream'
-                  - 'logs:PutLogEvents'
-                Resource: '*'
-  WorkerLambdaRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Statement:
-          Effect: 'Allow'
-          Action:
-            - 'sts:AssumeRole'
-          Principal:
-            Service:
-              - lambda.amazonaws.com
-        Version: '2012-10-17'
-      Policies:
-        - PolicyName: 'root'
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: 'Allow'
-                Action:
-                  - 'sqs:ReceiveMessage'
-                  - 'sqs:DeleteMessage'
-                  - 'sqs:GetQueueAttributes'
-                Resource: !GetAtt WorkerSQSQueue.Arn
-              - Effect: 'Allow'
-                Action:
-                  - 'logs:CreateLogGroup'
-                  - 'logs:CreateLogStream'
-                  - 'logs:PutLogEvents'
-                Resource: '*'
-              - Effect: 'Allow'
-                Action:
-                  - 'timestream:DescribeEndpoints'
-                Resource: '*'
-              - Effect: 'Allow'
-                Action:
-                  - 'timestream:WriteRecords'
-                Resource: !If [ createTimestream, !GetAtt TimestreamTable.Arn, !Join [ '/', [ !Join [ ':', ['arn' , 'aws', 'timestream', !Ref AWS::Region, !Ref AWS::AccountId, 'database'] ] , !Ref TimestreamDatabaseName, 'table', !Ref TimestreamTableName ] ] ]
   SQSLambdaTrigger:
     Type: AWS::Lambda::EventSourceMapping
+    DependsOn: WorkerLambdaPolicy
     Properties:
       BatchSize: 1
       EventSourceArn: !GetAtt WorkerSQSQueue.Arn
@@ -203,6 +139,18 @@ Resources:
       Action: 'lambda:InvokeFunction'
       Principal: 'events.amazonaws.com'
       SourceArn: !GetAtt OrechestratorScheduledRule.Arn
+  WorkerLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          Effect: 'Allow'
+          Action:
+            - 'sts:AssumeRole'
+          Principal:
+            Service:
+              - lambda.amazonaws.com
+        Version: '2012-10-17'
   WorkerLambdaFunction:
     Type: AWS::Lambda::Function
     Properties:
@@ -300,6 +248,54 @@ Resources:
                 print(json.dumps(job_log))
             except ValueError as e:
               print(json.dumps(str(e)))
+  WorkerLogGroup:
+    Type: 'AWS::Logs::LogGroup'
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${WorkerLambdaFunction}'
+      RetentionInDays: 90
+  WorkerLambdaPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      Roles:
+        - !Ref WorkerLambdaRole
+      PolicyName: !Sub '${AWS::Region}-${WorkerLambdaFunction}-policy'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: 'Allow'
+            Action:
+              - 'sqs:ReceiveMessage'
+              - 'sqs:DeleteMessage'
+              - 'sqs:GetQueueAttributes'
+            Resource: !GetAtt WorkerSQSQueue.Arn
+          - Effect: Allow
+            Action:
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Resource:
+              - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${WorkerLambdaFunction}'
+              - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${WorkerLambdaFunction}:*'
+              - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${WorkerLambdaFunction}:*:*'
+          - Effect: 'Allow'
+            Action:
+              - 'timestream:DescribeEndpoints'
+            Resource: '*'
+          - Effect: 'Allow'
+            Action:
+              - 'timestream:WriteRecords'
+            Resource: !If [ createTimestream, !GetAtt TimestreamTable.Arn, !Join [ '/', [ !Join [ ':', ['arn' , 'aws', 'timestream', !Ref AWS::Region, !Ref AWS::AccountId, 'database'] ] , !Ref TimestreamDatabaseName, 'table', !Ref TimestreamTableName ] ] ]
+  OrchestratorLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          Effect: 'Allow'
+          Action:
+            - 'sts:AssumeRole'
+          Principal:
+            Service:
+              - lambda.amazonaws.com
+        Version: '2012-10-17'
   OrchestratorLambdaFunction:
     Type: AWS::Lambda::Function
     Properties:
@@ -375,6 +371,33 @@ Resources:
             job_log['end'] = job_end.replace(microsecond=0).isoformat()
             job_log['duration_sec'] = job_duration.total_seconds()
             print(json.dumps(job_log))
+  OrchestratorLogGroup:
+    Type: 'AWS::Logs::LogGroup'
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${OrchestratorLambdaFunction}'
+      RetentionInDays: 90
+  OrchestratorLambdaPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      Roles:
+        - !Ref OrchestratorLambdaRole
+      PolicyName: !Sub '${AWS::Region}-${OrchestratorLambdaFunction}-policy'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: 'Allow'
+            Action:
+              - 'sqs:SendMessage'
+              - 'sqs:GetQueueAttributes'
+            Resource: !GetAtt WorkerSQSQueue.Arn
+          - Effect: Allow
+            Action:
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Resource:
+              - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${OrchestratorLambdaFunction}'
+              - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${OrchestratorLambdaFunction}:*'
+              - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${OrchestratorLambdaFunction}:*:*'
 Outputs:
   TimestreamDatabaseARN:
     Description: 'ARN of Timestream database'
