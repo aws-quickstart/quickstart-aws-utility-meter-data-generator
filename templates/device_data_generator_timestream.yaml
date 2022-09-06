@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'Device Data Generator'
+Description: 'Device Data Generator (qs-1td65m52e)'
 Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
@@ -116,73 +116,9 @@ Resources:
     Properties:
       VisibilityTimeout: 3600
       MessageRetentionPeriod: 28800
-  OrchestratorLambdaRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Statement:
-          Effect: 'Allow'
-          Action:
-            - 'sts:AssumeRole'
-          Principal:
-            Service:
-              - lambda.amazonaws.com
-        Version: '2012-10-17'
-      Policies:
-        - PolicyName: 'root'
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: 'Allow'
-                Action:
-                  - 'sqs:SendMessage'
-                  - 'sqs:GetQueueAttributes'
-                Resource: !GetAtt WorkerSQSQueue.Arn
-              - Effect: 'Allow'
-                Action:
-                  - 'logs:CreateLogGroup'
-                  - 'logs:CreateLogStream'
-                  - 'logs:PutLogEvents'
-                Resource: '*'
-  WorkerLambdaRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Statement:
-          Effect: 'Allow'
-          Action:
-            - 'sts:AssumeRole'
-          Principal:
-            Service:
-              - lambda.amazonaws.com
-        Version: '2012-10-17'
-      Policies:
-        - PolicyName: 'root'
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: 'Allow'
-                Action:
-                  - 'sqs:ReceiveMessage'
-                  - 'sqs:DeleteMessage'
-                  - 'sqs:GetQueueAttributes'
-                Resource: !GetAtt WorkerSQSQueue.Arn
-              - Effect: 'Allow'
-                Action:
-                  - 'logs:CreateLogGroup'
-                  - 'logs:CreateLogStream'
-                  - 'logs:PutLogEvents'
-                Resource: '*'
-              - Effect: 'Allow'
-                Action:
-                  - 'timestream:DescribeEndpoints'
-                Resource: '*'
-              - Effect: 'Allow'
-                Action:
-                  - 'timestream:WriteRecords'
-                Resource: !If [ createTimestream, !GetAtt TimestreamTable.Arn, !Join [ '/', [ !Join [ ':', ['arn' , 'aws', 'timestream', !Ref AWS::Region, !Ref AWS::AccountId, 'database'] ] , !Ref TimestreamDatabaseName, 'table', !Ref TimestreamTableName ] ] ]
   SQSLambdaTrigger:
     Type: AWS::Lambda::EventSourceMapping
+    DependsOn: WorkerLambdaPolicy
     Properties:
       BatchSize: 1
       EventSourceArn: !GetAtt WorkerSQSQueue.Arn
@@ -203,6 +139,18 @@ Resources:
       Action: 'lambda:InvokeFunction'
       Principal: 'events.amazonaws.com'
       SourceArn: !GetAtt OrechestratorScheduledRule.Arn
+  WorkerLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          Effect: 'Allow'
+          Action:
+            - 'sts:AssumeRole'
+          Principal:
+            Service:
+              - lambda.amazonaws.com
+        Version: '2012-10-17'
   WorkerLambdaFunction:
     Type: AWS::Lambda::Function
     Properties:
@@ -227,48 +175,28 @@ Resources:
           import random
           import botocore
           from datetime import datetime
-
           timestream_database = os.environ['TIMESTREAM_DATABASE']
           timestream_table = os.environ['TIMESTREAM_TABLE']
           region_voltage = int(os.environ['REGION_VOLTAGE']) #country-specific reference voltage
           min_load = float(os.environ['MIN_LOAD']) #minimum load across all devices
           max_laod = float(os.environ['MAX_LOAD']) #maximum load across all devices
-
           session = boto3.Session()
           write_client = session.client('timestream-write')
           write_batch_size = 100
-
-          def parse_data_type(data_type,string_value):
-            try:
-              if data_type == 'Number':
-                string_value = int(string_value)
-              else:
-                string_value = str(string_value)
-              return string_value
-            except Exception as e:
-              raise ValueError(e) from None
-
           def generate_readings(device_index):
             try:
               device_id = str(uuid.uuid3(uuid.NAMESPACE_OID, str(device_index)))
-              readings = {
-                  'Dimensions': [{'Name': 'device_id', 'Value': device_id, 'DimensionValueType': 'VARCHAR'}],
-                  'MeasureValues': []
-                }
-
+              readings = {'Dimensions': [{'Name': 'device_id', 'Value': device_id, 'DimensionValueType': 'VARCHAR'}], 'MeasureValues': []}
               #create persistent load in range for device based on device_index
               random.seed(device_index) #set seed
               load = int(random.uniform(min_load, max_laod))
               random.seed(None) #unset seed
-
               pf = random.uniform(0.8, 0.99)
               ldf = random.uniform(0, 10)
-
               kw = load * (ldf / 10)
               kva = kw / pf
               vltg = (random.uniform(0, 1) * (round(region_voltage * 1.1, 2) - round(region_voltage * 0.9, 2)) + round(region_voltage * 0.9, 2)) / 1000
-              crrnt = kva / vltg
-              
+              crrnt = kva / vltg            
               readings['MeasureValues'].append({'Name': 'load', 'Value': str(load), 'Type': 'BIGINT'})
               readings['MeasureValues'].append({'Name': 'pf', 'Value': str(round(pf, 3)), 'Type': 'DOUBLE'})
               readings['MeasureValues'].append({'Name': 'kw', 'Value': str(round(kw, 3)), 'Type': 'DOUBLE'})
@@ -276,10 +204,8 @@ Resources:
               readings['MeasureValues'].append({'Name': 'vltg', 'Value': str(round(vltg, 3)), 'Type': 'DOUBLE'})
               readings['MeasureValues'].append({'Name': 'crrnt', 'Value': str(round(crrnt, 3)), 'Type': 'DOUBLE'})
               return readings
-
             except Exception as e:
               raise ValueError(e) from None
-
           def write_records(records, common_attributes):
             try:
               result = write_client.write_records(
@@ -288,18 +214,13 @@ Resources:
                 Records = records,
                 CommonAttributes = common_attributes
               )
-
             except botocore.exceptions.ClientError as e:
               raise ValueError(e) from None
-
           def lambda_handler(event, context):
             try:
               # Parse lambda event
               for record in event['Records']:
-                item = {}
-                for k,v in record['messageAttributes'].items():
-                  item[k] = parse_data_type(v['dataType'], v['stringValue'])
-
+                item = json.loads(record['body'])
                 job_start = datetime.now()
                 job_log = {
                   'batch_id': item['BatchId'],
@@ -308,14 +229,9 @@ Resources:
                   'records_total': 0,
                   'timestream_writes': 0
                 }
-                
                 # Generate records for given range and write in batches to Timestream
                 for i in range(item['RangeStart'], item['RangeEnd'] + 1, write_batch_size):
-                  common_attributes = {
-                    #'Dimensions': [{'Name': 'batch_id', 'Value': item['BatchId']}],
-                    'Time': str(item['BatchTime']),
-                    'MeasureName': 'readings', 'MeasureValueType': 'MULTI'
-                  }
+                  common_attributes = {'Time': str(item['BatchTime']), 'MeasureName': 'readings', 'MeasureValueType': 'MULTI'}
                   records = []
                   for device_index in range(i, min(i + write_batch_size - 1, item['RangeEnd']) + 1):
                     record = generate_readings(device_index)
@@ -323,7 +239,6 @@ Resources:
                     records.append(record)
                   write_records(records, common_attributes)
                   job_log['timestream_writes'] += 1
-
                 # Job Logging
                 job_end = datetime.now()
                 job_log['end'] = job_end.replace(microsecond=0).isoformat()
@@ -333,6 +248,54 @@ Resources:
                 print(json.dumps(job_log))
             except ValueError as e:
               print(json.dumps(str(e)))
+  WorkerLogGroup:
+    Type: 'AWS::Logs::LogGroup'
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${WorkerLambdaFunction}'
+      RetentionInDays: 90
+  WorkerLambdaPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      Roles:
+        - !Ref WorkerLambdaRole
+      PolicyName: !Sub '${AWS::Region}-${WorkerLambdaFunction}-policy'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: 'Allow'
+            Action:
+              - 'sqs:ReceiveMessage'
+              - 'sqs:DeleteMessage'
+              - 'sqs:GetQueueAttributes'
+            Resource: !GetAtt WorkerSQSQueue.Arn
+          - Effect: Allow
+            Action:
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Resource:
+              - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${WorkerLambdaFunction}'
+              - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${WorkerLambdaFunction}:*'
+              - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${WorkerLambdaFunction}:*:*'
+          - Effect: 'Allow'
+            Action:
+              - 'timestream:DescribeEndpoints'
+            Resource: '*'
+          - Effect: 'Allow'
+            Action:
+              - 'timestream:WriteRecords'
+            Resource: !If [ createTimestream, !GetAtt TimestreamTable.Arn, !Join [ '/', [ !Join [ ':', ['arn' , 'aws', 'timestream', !Ref AWS::Region, !Ref AWS::AccountId, 'database'] ] , !Ref TimestreamDatabaseName, 'table', !Ref TimestreamTableName ] ] ]
+  OrchestratorLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          Effect: 'Allow'
+          Action:
+            - 'sts:AssumeRole'
+          Principal:
+            Service:
+              - lambda.amazonaws.com
+        Version: '2012-10-17'
   OrchestratorLambdaFunction:
     Type: AWS::Lambda::Function
     Properties:
@@ -353,14 +316,11 @@ Resources:
           import uuid
           import boto3
           from datetime import datetime
-
           # Job Settings
           queue_url = os.environ['WORKER_QUEUE_URL']
           device_count = int(os.environ['DEVICE_COUNT'])
           records_per_worker = int(os.environ['RECORDS_PER_WORKER'])
-
           sqs_client = boto3.client('sqs')
-
           def write_sqs(jobs):
             job_log = {'total_readings': 0, 'sqs_messages': 0, 'sqs_api_calls': 0}
             sqs_batch_size = 10
@@ -372,49 +332,28 @@ Resources:
               dt_friendly = datetime.now().replace(microsecond=0).isoformat()
               entries = []
               for x in chunk:
+                #print('Worker reading generation request for devices ' + str(x['start'] + 1) + ' to ' + str(x['end']) + ' at ' + str(dt_friendly))
                 job_log['sqs_messages'] += 1
                 job_log['total_readings'] += x['end'] - x['start']
                 entry = {
                   'Id': '-'.join(['WorkerReadings',str(x['start']),str(x['end']),str(int(dt_epoch))]),
-                  'MessageBody': 'Worker reading generation request for devices ' + str(x['start'] + 1) + ' to ' + str(x['end']) + ' at ' + str(dt_friendly),
-                  'MessageAttributes': {
-                    'RangeStart': {
-                      'DataType': 'Number',
-                      'StringValue': str(x['start'] + 1)
-                    },
-                    'RangeEnd': {
-                      'DataType': 'Number',
-                      'StringValue': str(x['end'])
-                    },
-                    'TotalDevices': {
-                      'DataType': 'Number',
-                      'StringValue': str(x['end'] - x['start'])
-                    },
-                    'BatchId': {
-                      'DataType': 'String',
-                      'StringValue': x['batch_id']
-                    },
-                    'BatchTime': {
-                      'DataType': 'Number',
-                      'StringValue': str(x['batch_time'])
-                    }
-                  }
+                  'MessageBody': json.dumps({
+                    'RangeStart': x['start'] + 1,
+                    'RangeEnd': x['end'],
+                    'TotalDevices': x['end'] - x['start'],
+                    'BatchId': x['batch_id'],
+                    'BatchTime': x['batch_time']
+                  })
                 }
                 entries.append(entry)
-
-              response = sqs_client.send_message_batch(
-                QueueUrl=queue_url,
-                Entries=entries
-              )
+              response = sqs_client.send_message_batch(QueueUrl=queue_url, Entries=entries)
             return(job_log)
-
           def lambda_handler(event, context):
             batch_id = str(uuid.uuid4())
             batch_time = int(datetime.now().timestamp() // 300 * 300) * 1000
             job_log = {}
             job_start = datetime.now()
             jobs = []
-
             for i in range(0, device_count, records_per_worker):
               job = {
                 'batch_id': batch_id,
@@ -422,7 +361,6 @@ Resources:
                 'start': i,
                 'end': min((i + records_per_worker), device_count)}
               jobs.append(job)
-
             job_results = write_sqs(jobs)
             job_log.update(job_results)
             job_end = datetime.now()
@@ -433,6 +371,33 @@ Resources:
             job_log['end'] = job_end.replace(microsecond=0).isoformat()
             job_log['duration_sec'] = job_duration.total_seconds()
             print(json.dumps(job_log))
+  OrchestratorLogGroup:
+    Type: 'AWS::Logs::LogGroup'
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${OrchestratorLambdaFunction}'
+      RetentionInDays: 90
+  OrchestratorLambdaPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      Roles:
+        - !Ref OrchestratorLambdaRole
+      PolicyName: !Sub '${AWS::Region}-${OrchestratorLambdaFunction}-policy'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: 'Allow'
+            Action:
+              - 'sqs:SendMessage'
+              - 'sqs:GetQueueAttributes'
+            Resource: !GetAtt WorkerSQSQueue.Arn
+          - Effect: Allow
+            Action:
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Resource:
+              - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${OrchestratorLambdaFunction}'
+              - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${OrchestratorLambdaFunction}:*'
+              - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${OrchestratorLambdaFunction}:*:*'
 Outputs:
   TimestreamDatabaseARN:
     Description: 'ARN of Timestream database'
