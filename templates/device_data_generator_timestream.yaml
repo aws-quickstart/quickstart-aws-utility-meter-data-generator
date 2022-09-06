@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'Device Data Generator (qs-12345)'
+Description: 'Device Data Generator (qs-1td65m52e)'
 Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
