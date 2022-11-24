@@ -7,16 +7,14 @@ project:
   - us-east-2
   - us-west-2
   parameters:
-    GenerationState: 'ENABLED'
+    GenerationState: 'DISABLED'
     GenerationInterval: 5
     TotalDevices: 1000
     DevicesPerWorker: 100
     RegionalVoltage: 220
     MinLoad: 5
     MaxLoad: 20
-    TimestreamCreation: 'Create New'
-    TimestreamDatabaseName: 'devices'
-    TimestreamTableName: 'readings'
+
 tests:
   default:
-    template: templates/device_data_generator_timestream.yaml
+    template: templates/workload.template.yaml
