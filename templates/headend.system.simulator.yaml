@@ -76,18 +76,8 @@ Parameters:
       and https://aws-quickstart.github.io/option1.html.
     Type: String
 
-  QSS3BucketRegion:
-    Default: 'us-east-1'
-    Description: 'AWS Region where the Quick Start S3 bucket (QSS3BucketName) is 
-    hosted. Keep the default Region unless you are customizing the template. 
-    Changing this Region updates code references to point to a new Quick Start location. 
-    When using your own bucket, specify the Region. 
-    See https://aws-quickstart.github.io/option1.html.'
-    Type: String
-
 Conditions:
   createTimestream: !Equals [ !Ref TimestreamCreation, 'Create New' ]
-  UsingDefaultBucket: !Equals [ !Ref QSS3BucketName, 'aws-quickstart' ]
 
 Resources:
   ReadingsFileSQSQueue:
@@ -137,6 +127,13 @@ Resources:
 
   S3CopyLambdaRole:
     Type: AWS::IAM::Role
+    Metadata:
+      cfn-lint:
+        config:
+          ignore_checks:
+            - E9101
+          ignore_reasons:
+            E9101: Use welcoming and inclusive language
     Properties:
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
@@ -288,7 +285,7 @@ Resources:
               - 'secretsmanager:DeleteSecret'
               - 'secretsmanager:DescribeSecret'
               - 'secretsmanager:PutSecretValue'
-            Resource: !Sub arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AWS::StackName}/*
+            Resource: !Sub arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AWS::StackName}/*
           - Effect: 'Allow'
             Action:
               - 'logs:CreateLogStream'
@@ -434,7 +431,7 @@ Resources:
         IntegrationHttpMethod: POST
         Type: AWS_PROXY
         Uri: !Sub
-          - arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${lambdaArn}/invocations
+          - arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${lambdaArn}/invocations
           - lambdaArn: !GetAtt ReadingsGetLambdaFunction.Arn
   ReadingsFilePostMethod:
     Type: AWS::ApiGateway::Method
@@ -453,7 +450,7 @@ Resources:
         Type: AWS_PROXY
         IntegrationHttpMethod: POST
         Uri: !Sub
-          - arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${lambdaArn}/invocations
+          - arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${lambdaArn}/invocations
           - lambdaArn: !GetAtt ReadingsFilePostLambdaFunction.Arn
   ReadingsFileGetMethod:
     Type: AWS::ApiGateway::Method
@@ -474,7 +471,7 @@ Resources:
         IntegrationHttpMethod: POST
         Type: AWS_PROXY
         Uri: !Sub
-          - arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${lambdaArn}/invocations
+          - arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${lambdaArn}/invocations
           - lambdaArn: !GetAtt ReadingsFileGetLambdaFunction.Arn
 
   apiGatewayDeployment:
@@ -632,7 +629,7 @@ Resources:
       Action: lambda:InvokeFunction
       FunctionName: !GetAtt ReadingsGetLambdaFunction.Arn
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${apiGateway}/*/GET/readings
+      SourceArn: !Sub arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${apiGateway}/*/GET/readings
   ReadingsGetLambdaRole:
     Type: AWS::IAM::Role
     Properties:
@@ -742,7 +739,7 @@ Resources:
       Action: lambda:InvokeFunction
       FunctionName: !GetAtt ReadingsFileGetLambdaFunction.Arn
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${apiGateway}/*/GET/readings/file
+      SourceArn: !Sub arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${apiGateway}/*/GET/readings/file
   ReadingsFileGetLambdaRole:
     Type: AWS::IAM::Role
     Properties:
@@ -840,7 +837,7 @@ Resources:
       Action: lambda:InvokeFunction
       FunctionName: !GetAtt ReadingsFilePostLambdaFunction.Arn
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${apiGateway}/*/POST/readings/file
+      SourceArn: !Sub arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${apiGateway}/*/POST/readings/file
   ReadingsFilePostLambdaRole:
     Type: AWS::IAM::Role
     Properties:
@@ -1089,7 +1086,7 @@ Resources:
             Action:
               - 'glue:StartJobRun'
             Resource: !Sub
-              - arn:aws:glue:${AWS::Region}:${AWS::AccountId}:job/${GlueJob}
+              - arn:${AWS::Partition}:glue:${AWS::Region}:${AWS::AccountId}:job/${GlueJob}
               - GlueJob: !Ref GlueJob
           - Effect: 'Allow'
             Action:
@@ -1113,6 +1110,13 @@ Resources:
         Version: '2012-10-17'
   GlueJobPolicy:
     Type: AWS::IAM::Policy
+    Metadata:
+      cfn-lint:
+        config:
+          ignore_checks:
+            - E9101
+          ignore_reasons:
+            E9101: Use welcoming and inclusive language
     Properties:
       Roles:
         - !Ref GlueJobRole
@@ -1219,7 +1223,7 @@ Resources:
               "Sid": "AllowListingOfUserFolder",
               "Effect": "Allow",
               "Action": "s3:ListBucket",
-              "Resource": "arn:aws:s3:::${transfer:HomeBucket}",
+              "Resource": "arn:${AWS::Partition}:s3:::${transfer:HomeBucket}",
               "Condition": {
                 "StringLike": {
                   "s3:prefix": [
@@ -1239,7 +1243,7 @@ Resources:
                 "s3:DeleteObject",
                 "s3:DeleteObjectVersion"
               ],
-              "Resource": "arn:aws:s3:::${transfer:HomeDirectory}*"
+              "Resource": "arn:${AWS::Partition}:s3:::${transfer:HomeDirectory}*"
             }
           ]
         }
