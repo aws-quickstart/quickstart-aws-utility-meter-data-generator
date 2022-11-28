@@ -40,22 +40,25 @@ try:
         ExpressionAttributeValues={':status': 'running'},
         UpdateExpression='SET #status = :status'
     )
-    
+
     #Fetch data async, passing in partition vars
-    #nosec B608
-    records_query = f'''( 
+    # fmt: off
+    records_query = (# nosec
+    f"""( 
     	select
     		time, device_id, measure_name, load, crrnt, pf, kva, kw, vltg
     	from {{timestream_database}}.{{timestream_table}}
     	where time >= '{{start_date}}'
     	and time <= '{{end_date}}'
-    	)''' \
+    	)""") \
     .format(
     	timestream_database=timestream_database,
     	timestream_table=timestream_table,
     	start_date=start_date,
     	end_date=end_date
     )
+    # fmt: on
+    
     datasource0 = sparkSession.read \
         .format('jdbc') \
         .option('url', 'jdbc:timestream://Region=' + region) \
