@@ -1,2 +1,5 @@
 .DS_Store
 taskcat_outputs/*
+.idea
+stack-parameter.json
+.taskcat
