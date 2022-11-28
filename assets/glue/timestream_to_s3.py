@@ -42,7 +42,8 @@ try:
     )
     
     #Fetch data async, passing in partition vars
-    records_query = f'''(
+    # nosec B608
+    records_query = f'''( 
     	select
     		time, device_id, measure_name, load, crrnt, pf, kva, kw, vltg
     	from {{timestream_database}}.{{timestream_table}}
