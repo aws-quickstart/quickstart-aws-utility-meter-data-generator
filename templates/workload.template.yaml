@@ -48,6 +48,19 @@ Outputs:
   StackName:
     Description: 'Stack name'
     Value: !Sub '${AWS::StackName}'
+  apiGatewayInvokeURL:
+    Description: 'API Gateway URL'
+    Value: !GetAtt HeadEndSystemSimulatorStack.Outputs.apiGatewayInvokeURL
+  SftpServerAddress:
+    Description: 'SFTP Server Address'
+    Value: !GetAtt HeadEndSystemSimulatorStack.Outputs.SftpServerAddress
+  SftpUserName:
+    Description: 'SFTP User Name'
+    Value: !GetAtt HeadEndSystemSimulatorStack.Outputs.SftpUserName
+  SecretARN:
+    Value: !GetAtt HeadEndSystemSimulatorStack.Outputs.SecretARN
+  SecretName:
+    Value: !GetAtt HeadEndSystemSimulatorStack.Outputs.SecretName
 
 Parameters:
   GenerationState:
