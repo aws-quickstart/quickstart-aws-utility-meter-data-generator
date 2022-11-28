@@ -42,7 +42,7 @@ try:
     )
     
     #Fetch data async, passing in partition vars
-    # nosec B608
+    #nosec B608
     records_query = f'''( 
     	select
     		time, device_id, measure_name, load, crrnt, pf, kva, kw, vltg
