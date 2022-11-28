@@ -58,7 +58,7 @@ try:
     	end_date=end_date
     )
     # fmt: on
-    
+
     datasource0 = sparkSession.read \
         .format('jdbc') \
         .option('url', 'jdbc:timestream://Region=' + region) \
