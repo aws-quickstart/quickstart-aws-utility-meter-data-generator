@@ -120,7 +120,7 @@ Resources:
       ProvisionedThroughput:
         ReadCapacityUnits: 5
         WriteCapacityUnits: 5
-  S3DestinationBucket:
+  HesSimulatorBucket:
     Type: AWS::S3::Bucket
     DeletionPolicy: Delete
 
@@ -170,8 +170,8 @@ Resources:
                   - 's3:AbortMultipartUpload'
                   - 's3:ListMultipartUploadParts'
                 Resource:
-                  - !Sub ${S3DestinationBucket.Arn}/*
-                  - !Sub ${S3DestinationBucket.Arn}
+                  - !Sub ${HesSimulatorBucket.Arn}/*
+                  - !Sub ${HesSimulatorBucket.Arn}
 
   S3CopyInvoke:
     Type: AWS::CloudFormation::CustomResource
@@ -181,7 +181,7 @@ Resources:
       SourceBucket: !Ref QSS3BucketName
       SourcePrefix: !Ref QSS3KeyPrefix
       Objects: !Ref SourceObjects
-      DestBucket: !Ref S3DestinationBucket
+      DestBucket: !Ref HesSimulatorBucket
 
   S3CopyLambdaFunction:
     Type: AWS::Lambda::Function
@@ -252,7 +252,7 @@ Resources:
       CompatibleArchitectures:
         - 'x86_64'
       Content:
-        S3Bucket: !Ref S3DestinationBucket
+        S3Bucket: !Ref HesSimulatorBucket
         S3Key: 'assets/lambda/layer/cryptography_py3_9.zip'
       LicenseInfo: 'Apache 2.0'
 
@@ -492,7 +492,7 @@ Resources:
       CompatibleRuntimes:
         - python3.9
       Content:
-        S3Bucket: !Ref S3DestinationBucket
+        S3Bucket: !Ref HesSimulatorBucket
         S3Key: 'assets/lambda/layer/awswrangler-layer-2.16.1-py3.9.zip'
       LicenseInfo: 'Apache 2.0'
   RequestParameterValidator:
@@ -886,7 +886,7 @@ Resources:
       Environment:
         Variables:
           SQS_QUEUE_URL: !Ref ReadingsFileSQSQueue
-          BUCKET: !Ref S3DestinationBucket
+          BUCKET: !Ref HesSimulatorBucket
           DYNAMODB_TABLE: !Ref DynamoTable
           REGION_NAME: !Ref AWS::Region
           GLUE_JOB_NAME: !Ref GlueJob
@@ -979,7 +979,7 @@ Resources:
                   worker_cores = 4
                   worker_count = math.ceil(partition_count/worker_cores)+1
                   #Create string for list of jars in jars folder
-                  jars_folder = 'assets/glue/jars'
+                  jars_folder = 'assets/jars'
                   jars = []
                   s3_response = s3_client.list_objects(Bucket=bucket, Prefix=jars_folder)
                   for content in s3_response['Contents']:
@@ -988,7 +988,7 @@ Resources:
                   jars_string = ','.join(jars)
                   glue_job_args = {
                     '--request_id': request_id,
-                    '--scriptLocation': 's3://' + bucket + '/assets/glue/scripts/timestream_to_s3.py',
+                    '--scriptLocation': 's3://' + bucket + '/assets/glue/timestream_to_s3.py',
                     '--bucket': bucket,
                     '--TempDir': 's3://' + bucket + '/temp/',
                     '--start_date': time_min,
@@ -1059,7 +1059,7 @@ Resources:
           - Effect: 'Allow'
             Action:
               - 's3:ListBucket'
-            Resource: !Sub ${S3DestinationBucket.Arn}
+            Resource: !Sub ${HesSimulatorBucket.Arn}
           - Effect: 'Allow'
             Action:
               - 'sqs:ReceiveMessage'
@@ -1143,7 +1143,7 @@ Resources:
               - 's3:ListBucket'
               - 's3:GetBucketLocation'
               - 's3:ListBucketMultipartUploads'
-            Resource: !Sub ${S3DestinationBucket.Arn}
+            Resource: !Sub ${HesSimulatorBucket.Arn}
           - Effect: 'Allow'
             Action:
               - 's3:GetObject'
@@ -1151,7 +1151,7 @@ Resources:
               - 's3:CreateMultipartUpload'
               - 's3:AbortMultipartUpload'
               - 's3:ListMultipartUploadParts'
-            Resource: !Sub ${S3DestinationBucket.Arn}/*
+            Resource: !Sub ${HesSimulatorBucket.Arn}/*
           - Effect: 'Allow'
             Action:
               - 'logs:CreateLogGroup'
@@ -1174,7 +1174,7 @@ Resources:
       Command:
         Name: 'glueetl'
         PythonVersion: '3'
-        ScriptLocation: !Sub s3://${S3DestinationBucket}/assets/glue/timestream_to_s3.py
+        ScriptLocation: !Sub s3://${HesSimulatorBucket}/assets/glue/timestream_to_s3.py
       Role: !GetAtt GlueJobRole.Arn
   SFTPServer:
     Type: AWS::Transfer::Server
@@ -1200,7 +1200,7 @@ Resources:
               - Effect: 'Allow'
                 Action:
                   - 's3:ListBucket'
-                Resource: !Sub ${S3DestinationBucket.Arn}
+                Resource: !Sub ${HesSimulatorBucket.Arn}
               - Effect: Allow
                 Action:
                   - 's3:PutObject'
@@ -1208,13 +1208,13 @@ Resources:
                   - 's3:GetObjectVersion'
                   - 's3:DeleteObject'
                   - 's3:DeleteObjectVersion'
-                Resource: !Sub '${S3DestinationBucket.Arn}/*'
+                Resource: !Sub '${HesSimulatorBucket.Arn}/*'
   SFTPUser:
     Type: AWS::Transfer::User
     Properties:
       ServerId: !GetAtt SFTPServer.ServerId
       UserName: 'sftp-user'
-      HomeDirectory: !Sub '/${S3DestinationBucket}/data/sftp'
+      HomeDirectory: !Sub '/${HesSimulatorBucket}/data/sftp'
       Policy: >
         {
           "Version": "2012-10-17",
