@@ -979,7 +979,7 @@ Resources:
                   worker_cores = 4
                   worker_count = math.ceil(partition_count/worker_cores)+1
                   #Create string for list of jars in jars folder
-                  jars_folder = 'assets/glue/jars'
+                  jars_folder = 'assets/jars'
                   jars = []
                   s3_response = s3_client.list_objects(Bucket=bucket, Prefix=jars_folder)
                   for content in s3_response['Contents']:
@@ -988,7 +988,7 @@ Resources:
                   jars_string = ','.join(jars)
                   glue_job_args = {
                     '--request_id': request_id,
-                    '--scriptLocation': 's3://' + bucket + '/assets/glue/scripts/timestream_to_s3.py',
+                    '--scriptLocation': 's3://' + bucket + '/assets/glue/timestream_to_s3.py',
                     '--bucket': bucket,
                     '--TempDir': 's3://' + bucket + '/temp/',
                     '--start_date': time_min,
