@@ -16,14 +16,18 @@ Metadata:
           - QSS3KeyPrefix
     ParameterLabels:
       TimestreamCreation:
-        default: 'Do you want to use an existing Timestream table or create a new one?'
+        default: 'Do you want to use an existing Timestream database and table or create new ones?'
       TimestreamDatabaseName:
         default: 'Name of the new or existing Timestream database'
       TimestreamTableName:
         default: 'Name of the new or existing Timestream table'
+      QSS3BucketName:
+        default: 'What is the name of the bucket in which the Quick Start assets are hosted?'
+      QSS3KeyPrefix:
+        default: 'What is the prefix (directory) in which the Qkick Start assets are located?'
 Parameters:
   TimestreamCreation:
-    Default: 'Use Existing'
+    Default: 'Create New'
     Type: String
     AllowedValues:
       - 'Create New'
@@ -41,50 +45,38 @@ Parameters:
   SourceObjects:
     Type: String
     Default: 'assets/jars/amazon-timestream-jdbc-1.0.2.jar, assets/lambda/layer/cryptography_py3_9.zip, assets/lambda/layer/awswrangler-layer-2.16.1-py3.9.zip, assets/glue/timestream_to_s3.py'
-
   QSS3BucketName:
+    Description:
+      'Keep the default bucket unless you are customizing the template or assets in a new location.
+      Changing the name updates code references to point to a new Quick Start location.
+      This name can include numbers, lowercase letters, uppercase letters, and hyphens, but do not start or end with a hyphen (-).
+      See https://aws-quickstart.github.io/option1.html.'
+    Type: String
+    Default: 'aws-quickstart'
     AllowedPattern: '^[0-9a-zA-Z]+([0-9a-zA-Z-]*[0-9a-zA-Z])*$'
     ConstraintDescription:
-      The Quick Start bucket name can include numbers, lowercase
-      letters, uppercase letters, and hyphens (-). It cannot start or end with a
-      hyphen (-).
-    Default: aws-quickstart
-    Description:
-      Name of the S3 bucket for your copy of the Quick Start assets.
-      Keep the default name unless you are customizing the template.
-      Changing the name updates code references to point to a new Quick
-      Start location. This name can include numbers, lowercase letters,
-      uppercase letters, and hyphens, but do not start or end with a hyphen (-).
-      See https://aws-quickstart.github.io/option1.html.
-    Type: String
-
+      'The Quick Start bucket name can include numbers, lowercase letters, uppercase letters, and hyphens (-).
+      It cannot start or end with a hyphen (-).'
   QSS3KeyPrefix:
+    Description:
+      'Keep the default prefix unless you are customizing the template or asset location.
+      Changing this prefix updates code references to point to a new Quick Start location.
+      This prefix can include numbers, lowercase letters, uppercase letters, hyphens (-), and forward slashes (/).
+      End with a forward slash. See https://docs.aws.amazon.com/AmazonS3/latest/dev/UsingMetadata.html and https://aws-quickstart.github.io/option1.html.'
+    Type: String
+    Default: 'quickstart-aws-utility-meter-data-generator/'
     AllowedPattern: '^[0-9a-zA-Z-/]*$'
     ConstraintDescription:
-      The Quick Start S3 key prefix can include numbers, lowercase letters,
-      uppercase letters, hyphens (-), and forward slashes (/). The prefix should
-      end with a forward slash (/).
-    Default: quickstart-aws-utility-meter-data-generator/
-    Description:
-      S3 key prefix that is used to simulate a directory for your copy of the
-      Quick Start assets. Keep the default prefix unless you are customizing
-      the template. Changing this prefix updates code references to point to
-      a new Quick Start location. This prefix can include numbers, lowercase
-      letters, uppercase letters, hyphens (-), and forward slashes (/). End with
-      a forward slash. See https://docs.aws.amazon.com/AmazonS3/latest/dev/UsingMetadata.html
-      and https://aws-quickstart.github.io/option1.html.
-    Type: String
-
+      'The Quick Start S3 key prefix can include numbers, lowercase letters, uppercase letters, hyphens (-), and forward slashes (/).
+      The prefix should end with a forward slash (/).'
 Conditions:
   createTimestream: !Equals [ !Ref TimestreamCreation, 'Create New' ]
-
 Resources:
   ReadingsFileSQSQueue:
     Type: AWS::SQS::Queue
     Properties:
       VisibilityTimeout: 3600
       MessageRetentionPeriod: 28800
-
   ReadingsFileSQSTrigger:
     Type: AWS::Lambda::EventSourceMapping
     DependsOn: ReadingsFileWorkerLambdaPolicy
@@ -92,7 +84,6 @@ Resources:
       BatchSize: 1
       EventSourceArn: !GetAtt ReadingsFileSQSQueue.Arn
       FunctionName: !GetAtt ReadingsFileWorkerLambdaFunction.Arn
-
   TimestreamDatabase:
     Condition: createTimestream
     Type: AWS::Timestream::Database
@@ -123,7 +114,6 @@ Resources:
   HesSimulatorBucket:
     Type: AWS::S3::Bucket
     DeletionPolicy: Delete
-
   S3CopyLambdaRole:
     Type: AWS::IAM::Role
     Metadata:
@@ -172,7 +162,6 @@ Resources:
                 Resource:
                   - !Sub ${HesSimulatorBucket.Arn}/*
                   - !Sub ${HesSimulatorBucket.Arn}
-
   S3CopyInvoke:
     Type: AWS::CloudFormation::CustomResource
     Version: '1.0'
@@ -182,7 +171,6 @@ Resources:
       SourcePrefix: !Ref QSS3KeyPrefix
       Objects: !Ref SourceObjects
       DestBucket: !Ref HesSimulatorBucket
-
   S3CopyLambdaFunction:
     Type: AWS::Lambda::Function
     Properties:
@@ -234,13 +222,11 @@ Resources:
             finally:
               timer.cancel()
               cfnresponse.send(event, context, status, {}, None)
-
   S3CopyLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
       LogGroupName: !Sub '/aws/lambda/${S3CopyLambdaFunction}'
       RetentionInDays: 90
-
   CryptographyLayer39:
     Type: AWS::Lambda::LayerVersion
     DependsOn: S3CopyInvoke
@@ -255,7 +241,6 @@ Resources:
         S3Bucket: !Ref HesSimulatorBucket
         S3Key: 'assets/lambda/layer/cryptography_py3_9.zip'
       LicenseInfo: 'Apache 2.0'
-
   CreateSecretLambdaRole:
     Type: AWS::IAM::Role
     Properties:
@@ -284,7 +269,7 @@ Resources:
               - 'secretsmanager:DeleteSecret'
               - 'secretsmanager:DescribeSecret'
               - 'secretsmanager:PutSecretValue'
-            Resource: !Sub arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AWS::StackName}/*
+            Resource: !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AWS::StackName}/*'
           - Effect: 'Allow'
             Action:
               - 'logs:CreateLogStream'
@@ -299,7 +284,6 @@ Resources:
     DependsOn: CreateSecretLambdaPolicy
     Properties:
       ServiceToken: !GetAtt CreateSecretLambdaFunction.Arn
-
   CreateSecretLambdaFunction:
     Type: AWS::Lambda::Function
     Properties:
@@ -394,25 +378,18 @@ Resources:
           - REGIONAL
   ReadingsResource:
     Type: AWS::ApiGateway::Resource
-    DependsOn:
-      apiGateway
     Properties:
       RestApiId: !Ref apiGateway
       ParentId: !GetAtt apiGateway.RootResourceId
       PathPart: 'readings'
   ReadingsFileResource:
     Type: AWS::ApiGateway::Resource
-    DependsOn:
-      - apiGateway
-      - ReadingsResource
     Properties:
       RestApiId: !Ref apiGateway
       ParentId: !Ref ReadingsResource
       PathPart: 'file'
   ReadingsRootGetMethod:
     Type: AWS::ApiGateway::Method
-    DependsOn:
-      ReadingsResource
     Properties:
       RestApiId: !Ref apiGateway
       ResourceId: !Ref ReadingsResource
@@ -434,8 +411,6 @@ Resources:
           - lambdaArn: !GetAtt ReadingsGetLambdaFunction.Arn
   ReadingsFilePostMethod:
     Type: AWS::ApiGateway::Method
-    DependsOn:
-      ReadingsFileResource
     Properties:
       RestApiId: !Ref apiGateway
       ResourceId: !Ref ReadingsFileResource
@@ -453,8 +428,6 @@ Resources:
           - lambdaArn: !GetAtt ReadingsFilePostLambdaFunction.Arn
   ReadingsFileGetMethod:
     Type: AWS::ApiGateway::Method
-    DependsOn:
-      ReadingsFileResource
     Properties:
       RestApiId: !Ref apiGateway
       ResourceId: !Ref ReadingsFileResource
@@ -472,7 +445,6 @@ Resources:
         Uri: !Sub
           - arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${lambdaArn}/invocations
           - lambdaArn: !GetAtt ReadingsFileGetLambdaFunction.Arn
-
   apiGatewayDeployment:
     Type: AWS::ApiGateway::Deployment
     DependsOn:
@@ -482,7 +454,6 @@ Resources:
     Properties:
       RestApiId: !Ref apiGateway
       StageName: 'prod'
-
   WranglerLayer39:
     Type: AWS::Lambda::LayerVersion
     DependsOn: S3CopyInvoke

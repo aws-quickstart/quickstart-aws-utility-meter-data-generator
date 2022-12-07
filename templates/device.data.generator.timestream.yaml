@@ -13,6 +13,9 @@ Metadata:
           - RegionalVoltage
           - MinLoad
           - MaxLoad
+          - LateArrivalSimulate
+          - LateArrivalPercent
+          - LateArrivalMinuteOffset
       - Label:
           default: 'Timestream Configuration'
         Parameters:
@@ -34,8 +37,14 @@ Metadata:
         default: 'What is the minimum contract load KW for a device?'
       MaxLoad:
         default: 'What is the maximum contract load KW for a device?'
+      LateArrivalSimulate:
+        default: 'Do you want to simulate late arriving data?'
+      LateArrivalPercent:
+        default: 'What percent of device readings to you want to arrive late?'
+      LateArrivalMinuteOffset:
+        default: 'By how many minutes do you want for late records to arrive?'
       TimestreamCreation:
-        default: 'Do you want to use an existing Timestream table or create a new one?'
+        default: 'Do you want to use an existing Timestream database and table or create new ones?'
       TimestreamDatabaseName:
         default: 'Name of the new or existing Timestream database'
       TimestreamTableName:
@@ -78,8 +87,27 @@ Parameters:
     Default: 20
     MinValue: 0
     MaxValue: 100
+  LateArrivalSimulate:
+    Description: 'Change to ENABLED at any time to simlate late arriving device readings'
+    Type: String
+    Default: 'DISABLED'
+    AllowedValues:
+      - 'ENABLED'
+      - 'DISABLED'
+  LateArrivalPercent:
+    Description: 'Percent of late arriving device readings'
+    Type: Number
+    Default: 10
+    MinValue: 1
+    MaxValue: 100
+  LateArrivalMinuteOffset:
+    Description: 'Delay in minutes for late arriving device readings'
+    Type: Number
+    Default: 1440
+    MinValue: 1
+    MaxValue: 43200
   TimestreamCreation:
-    Default: 'Create New'
+    Default: 'Use Existing'
     Type: String
     AllowedValues:
       - 'Create New'
@@ -165,6 +193,9 @@ Resources:
           REGION_VOLTAGE: !Ref RegionalVoltage
           MIN_LOAD: !Ref MinLoad
           MAX_LOAD: !Ref MaxLoad
+          LATE_ARRIVAL_SIMULATE: !Ref LateArrivalSimulate
+          LATE_ARRIVAL_PERCENT: !Ref LateArrivalPercent
+          LATE_ARRIVAL_MINUTE_OFFSET: !Ref LateArrivalMinuteOffset
       Handler: 'index.lambda_handler'
       Code:
         ZipFile: |
@@ -175,18 +206,21 @@ Resources:
           import random
           import botocore
           from datetime import datetime
+          late_arrival_minute_offset = int(os.environ['LATE_ARRIVAL_MINUTE_OFFSET'])
+          late_arrival_percent = int(os.environ['LATE_ARRIVAL_PERCENT'])
+          late_arrival_simulate = os.environ['LATE_ARRIVAL_SIMULATE']
+          max_laod = float(os.environ['MAX_LOAD']) #maximum load across all devices
+          min_load = float(os.environ['MIN_LOAD']) #minimum load across all devices
+          region_voltage = int(os.environ['REGION_VOLTAGE']) #country-specific reference voltage
           timestream_database = os.environ['TIMESTREAM_DATABASE']
           timestream_table = os.environ['TIMESTREAM_TABLE']
-          region_voltage = int(os.environ['REGION_VOLTAGE']) #country-specific reference voltage
-          min_load = float(os.environ['MIN_LOAD']) #minimum load across all devices
-          max_laod = float(os.environ['MAX_LOAD']) #maximum load across all devices
           session = boto3.Session()
           write_client = session.client('timestream-write')
           write_batch_size = 100
-          def generate_readings(device_index):
+          def generate_readings(device_index, reading_time, arrival_time):
             try:
               device_id = str(uuid.uuid3(uuid.NAMESPACE_OID, str(device_index)))
-              readings = {'Dimensions': [{'Name': 'device_id', 'Value': device_id, 'DimensionValueType': 'VARCHAR'}], 'MeasureValues': []}
+              readings = {'Time': str(reading_time), 'Dimensions': [{'Name': 'device_id', 'Value': device_id, 'DimensionValueType': 'VARCHAR'}], 'MeasureValues': []}
               #create persistent load in range for device based on device_index
               random.seed(device_index) #set seed
               load = int(random.uniform(min_load, max_laod))
@@ -196,7 +230,8 @@ Resources:
               kw = load * (ldf / 10)
               kva = kw / pf
               vltg = (random.uniform(0, 1) * (round(region_voltage * 1.1, 2) - round(region_voltage * 0.9, 2)) + round(region_voltage * 0.9, 2)) / 1000
-              crrnt = kva / vltg            
+              crrnt = kva / vltg
+              readings['MeasureValues'].append({'Name': 'arrival_time', 'Value': arrival_time, 'Type': 'TIMESTAMP'})
               readings['MeasureValues'].append({'Name': 'load', 'Value': str(load), 'Type': 'BIGINT'})
               readings['MeasureValues'].append({'Name': 'pf', 'Value': str(round(pf, 3)), 'Type': 'DOUBLE'})
               readings['MeasureValues'].append({'Name': 'kw', 'Value': str(round(kw, 3)), 'Type': 'DOUBLE'})
@@ -222,19 +257,31 @@ Resources:
               for record in event['Records']:
                 item = json.loads(record['body'])
                 job_start = datetime.now()
+                if late_arrival_simulate == 'ENABLED':
+                  late_devices = int((item['RangeEnd'] - item['RangeStart'] + 1) * (late_arrival_percent * .01))
+                else:
+                  late_devices = 0
                 job_log = {
                   'batch_id': item['BatchId'],
                   'batch_time': item['BatchTime'],
+                  'range_start': item['RangeStart'],
+                  'range_end': item['RangeEnd'],
+                  'late_devices': late_devices,
                   'start': job_start.replace(microsecond=0).isoformat(),
+                  'late_arrival_percent': late_arrival_percent,
                   'records_total': 0,
                   'timestream_writes': 0
-                }
+                } 
                 # Generate records for given range and write in batches to Timestream
                 for i in range(item['RangeStart'], item['RangeEnd'] + 1, write_batch_size):
-                  common_attributes = {'Time': str(item['BatchTime']), 'MeasureName': 'readings', 'MeasureValueType': 'MULTI'}
                   records = []
                   for device_index in range(i, min(i + write_batch_size - 1, item['RangeEnd']) + 1):
-                    record = generate_readings(device_index)
+                    common_attributes = {'MeasureName': 'readings', 'MeasureValueType': 'MULTI'}
+                    if device_index <= late_devices:
+                      reading_time = str(int(item['BatchTime']) - int(late_arrival_minute_offset * 60 * 1000))
+                    else:
+                      reading_time = str(item['BatchTime'])
+                    record = generate_readings(device_index=device_index, reading_time=reading_time, arrival_time=str(item['BatchTime']))
                     job_log['records_total'] += 1
                     records.append(record)
                   write_records(records, common_attributes)
@@ -308,6 +355,7 @@ Resources:
           WORKER_QUEUE_URL: !Ref WorkerSQSQueue
           DEVICE_COUNT: !Ref TotalDevices
           RECORDS_PER_WORKER: !Ref DevicesPerWorker
+          GENERATION_INTERVAL_MINUTES: !Ref GenerationInterval
       Handler: 'index.lambda_handler'
       Code:
         ZipFile: |
@@ -319,6 +367,7 @@ Resources:
           # Job Settings
           queue_url = os.environ['WORKER_QUEUE_URL']
           device_count = int(os.environ['DEVICE_COUNT'])
+          generation_interval_minutes = int(os.environ['GENERATION_INTERVAL_MINUTES'])
           records_per_worker = int(os.environ['RECORDS_PER_WORKER'])
           sqs_client = boto3.client('sqs')
           def write_sqs(jobs):
@@ -350,7 +399,7 @@ Resources:
             return(job_log)
           def lambda_handler(event, context):
             batch_id = str(uuid.uuid4())
-            batch_time = int(datetime.now().timestamp() // 300 * 300) * 1000
+            batch_time = int(datetime.now().timestamp()//(int(generation_interval_minutes) * 60) * (int(generation_interval_minutes) * 60)) * 1000
             job_log = {}
             job_start = datetime.now()
             jobs = []
