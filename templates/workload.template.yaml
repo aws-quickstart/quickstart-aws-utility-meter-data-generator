@@ -1,68 +1,93 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: 'AWS::Serverless-2016-10-31'
-Description: "Workload template to deploy the AWS Quick Start for the Utility Meter Data Analytics platform in an existing VPC. (qs-1r18anahd)"
-Conditions:
-  UsingDefaultBucket: !Equals [ !Ref QSS3BucketName, 'aws-quickstart' ]
-
-Resources:
-  DeviceDataGeneratorStack:
-    Type: 'AWS::CloudFormation::Stack'
-    Properties:
-      TemplateURL: !Sub
-        - 'https://${S3Bucket}.s3.${S3Region}.${AWS::URLSuffix}/${QSS3KeyPrefix}templates/device.data.generator.timestream.yaml'
-        - S3Region:
-            !If [ UsingDefaultBucket, !Ref 'AWS::Region', !Ref QSS3BucketRegion ]
-          S3Bucket:
-            !If [
-              UsingDefaultBucket,
-              !Sub '${QSS3BucketName}-${AWS::Region}',
-              !Ref QSS3BucketName,
-            ]
-      Parameters:
-        GenerationState: !Ref GenerationState
-        GenerationInterval: !Ref GenerationInterval
-        TotalDevices: !Ref TotalDevices
-        DevicesPerWorker: !Ref DevicesPerWorker
-        RegionalVoltage: !Ref RegionalVoltage
-        MinLoad: !Ref MinLoad
-        MaxLoad: !Ref MaxLoad
-
-  HeadEndSystemSimulatorStack:
-    Type: 'AWS::CloudFormation::Stack'
-    Properties:
-      TemplateURL: !Sub
-        - 'https://${S3Bucket}.s3.${S3Region}.${AWS::URLSuffix}/${QSS3KeyPrefix}templates/headend.system.simulator.yaml'
-        - S3Region:
-            !If [ UsingDefaultBucket, !Ref 'AWS::Region', !Ref QSS3BucketRegion ]
-          S3Bucket:
-            !If [
-              UsingDefaultBucket,
-              !Sub '${QSS3BucketName}-${AWS::Region}',
-              !Ref QSS3BucketName,
-            ]
-      Parameters:
-        QSS3BucketName: !Ref QSS3BucketName
-        QSS3KeyPrefix: !Ref QSS3KeyPrefix
-
-Outputs:
-  StackName:
-    Description: 'Stack name'
-    Value: !Sub '${AWS::StackName}'
-  apiGatewayInvokeURL:
-    Description: 'API Gateway URL'
-    Value: !GetAtt HeadEndSystemSimulatorStack.Outputs.apiGatewayInvokeURL
-  SftpServerAddress:
-    Description: 'SFTP Server Address'
-    Value: !GetAtt HeadEndSystemSimulatorStack.Outputs.SftpServerAddress
-  SftpUserName:
-    Description: 'SFTP User Name'
-    Value: !GetAtt HeadEndSystemSimulatorStack.Outputs.SftpUserName
-  SecretARN:
-    Value: !GetAtt HeadEndSystemSimulatorStack.Outputs.SecretARN
-  SecretName:
-    Value: !GetAtt HeadEndSystemSimulatorStack.Outputs.SecretName
-
+Description: 'Workload template to deploy the AWS Quick Start for the Utility Meter Data Analytics platform in an existing VPC. (qs-1r18anahd)'
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: 'Timestream Configuration'
+        Parameters:
+          - TimestreamCreation
+          - TimestreamDatabaseName
+          - TimestreamTableName
+          - TimestreamStackOwner
+      - Label:
+          default: 'Generator Configuration'
+        Parameters:
+          - GenerationState
+          - GenerationInterval
+          - TotalDevices
+          - DevicesPerWorker
+          - RegionalVoltage
+          - MinLoad
+          - MaxLoad
+          - LateArrivalSimulate
+          - LateArrivalPercent
+          - LateArrivalMinuteOffset
+      - Label:
+          default: 'Deployment Configuration'
+        Parameters:
+          - QSS3BucketName
+          - QSS3KeyPrefix
+          - QSS3BucketRegion
+    ParameterLabels:
+      TimestreamCreation:
+        default: 'Do you want to use an existing Timestream database and table or create new ones?'
+      TimestreamDatabaseName:
+        default: 'Name of the new or existing Timestream database'
+      TimestreamTableName:
+        default: 'Name of the new or existing Timestream table'
+      TimestreamStackOwner:
+        default: 'If creating a new Timestream database and table, which stack would you prefer to own the resource?'
+      GenerationState:
+        default: 'What is the desired state generating device readings?'
+      GenerationInterval:
+        default: 'How frequently do you want to generate device readings?'
+      TotalDevices:
+        default: 'For how many devices do you want to generate readings at each interval?'
+      DevicesPerWorker:
+        default: 'How many devices should each Lambda worker handle?'
+      RegionalVoltage:
+        default: 'What is the voltage for which to base the device readings?'
+      MinLoad:
+        default: 'What is the minimum contract load KW for a device?'
+      MaxLoad:
+        default: 'What is the maximum contract load KW for a device?'
+      LateArrivalSimulate:
+        default: 'Do you want to simulate late arriving data?'
+      LateArrivalPercent:
+        default: 'What percent of device readings to you want to arrive late?'
+      LateArrivalMinuteOffset:
+        default: 'By how many minutes do you want for late records to arrive?'
+      QSS3BucketName:
+        default: 'What is the name of the bucket in which the Quick Start assets are hosted?'
+      QSS3KeyPrefix:
+        default: 'What is the prefix (directory) in which the Qkick Start assets are located?'
+      QSS3BucketRegion:
+        default: 'In which AWS Region is the Quick Start S3 bucket located?'
 Parameters:
+  TimestreamCreation:
+    Default: 'Create New'
+    Type: String
+    AllowedValues:
+      - 'Create New'
+      - 'Use Existing'
+  TimestreamDatabaseName:
+    Type: String
+    Default: 'devices'
+    MinLength: 3
+    MaxLength: 256
+  TimestreamTableName:
+    Type: String
+    Default: 'readings'
+    MinLength: 3
+    MaxLength: 256
+  TimestreamStackOwner:
+    Default: 'Headend System Simulator'
+    Type: String
+    AllowedValues:
+      - 'Headend System Simulator'
+      - 'Device Data Generator'
   GenerationState:
     Description: 'Change to DISABLE at any time to stop generation of device readings'
     Type: String
@@ -100,65 +125,113 @@ Parameters:
     Default: 20
     MinValue: 0
     MaxValue: 100
-
+  LateArrivalSimulate:
+    Description: 'Change to ENABLED at any time to simlate late arriving device readings'
+    Type: String
+    Default: 'DISABLED'
+    AllowedValues:
+      - 'ENABLED'
+      - 'DISABLED'
+  LateArrivalPercent:
+    Description: 'Percent of late arriving device readings'
+    Type: Number
+    Default: 10
+    MinValue: 1
+    MaxValue: 100
+  LateArrivalMinuteOffset:
+    Description: 'Delay in minutes for late arriving device readings'
+    Type: Number
+    Default: 1440
+    MinValue: 1
+    MaxValue: 43200
   QSS3BucketName:
+    Description:
+      'Keep the default bucket unless you are customizing the template or assets in a new location.
+      Changing the name updates code references to point to a new Quick Start location.
+      This name can include numbers, lowercase letters, uppercase letters, and hyphens, but do not start or end with a hyphen (-).
+      See https://aws-quickstart.github.io/option1.html.'
+    Type: String
+    Default: 'aws-quickstart'
     AllowedPattern: '^[0-9a-zA-Z]+([0-9a-zA-Z-]*[0-9a-zA-Z])*$'
     ConstraintDescription:
-      The Quick Start bucket name can include numbers, lowercase
-      letters, uppercase letters, and hyphens (-). It cannot start or end with a
-      hyphen (-).
-    Default: aws-quickstart
-    Description:
-      Name of the S3 bucket for your copy of the Quick Start assets.
-      Keep the default name unless you are customizing the template.
-      Changing the name updates code references to point to a new Quick
-      Start location. This name can include numbers, lowercase letters,
-      uppercase letters, and hyphens, but do not start or end with a hyphen (-).
-      See https://aws-quickstart.github.io/option1.html.
-    Type: String
-  
+      'The Quick Start bucket name can include numbers, lowercase letters, uppercase letters, and hyphens (-).
+      It cannot start or end with a hyphen (-).'
   QSS3KeyPrefix:
+    Description:
+      'Keep the default prefix unless you are customizing the template or asset location.
+      Changing this prefix updates code references to point to a new Quick Start location.
+      This prefix can include numbers, lowercase letters, uppercase letters, hyphens (-), and forward slashes (/).
+      End with a forward slash. See https://docs.aws.amazon.com/AmazonS3/latest/dev/UsingMetadata.html and https://aws-quickstart.github.io/option1.html.'
+    Type: String
+    Default: 'quickstart-aws-utility-meter-data-generator/'
     AllowedPattern: '^[0-9a-zA-Z-/]*$'
     ConstraintDescription:
-      The Quick Start S3 key prefix can include numbers, lowercase letters,
-      uppercase letters, hyphens (-), and forward slashes (/). The prefix should
-      end with a forward slash (/).
-    Default: quickstart-aws-utility-meter-data-generator/
-    Description:
-      S3 key prefix that is used to simulate a directory for your copy of the
-      Quick Start assets. Keep the default prefix unless you are customizing
-      the template. Changing this prefix updates code references to point to
-      a new Quick Start location. This prefix can include numbers, lowercase
-      letters, uppercase letters, hyphens (-), and forward slashes (/). End with
-      a forward slash. See https://docs.aws.amazon.com/AmazonS3/latest/dev/UsingMetadata.html
-      and https://aws-quickstart.github.io/option1.html.
-    Type: String
-  
+      'The Quick Start S3 key prefix can include numbers, lowercase letters, uppercase letters, hyphens (-), and forward slashes (/).
+      The prefix should end with a forward slash (/).'
   QSS3BucketRegion:
-    Default: 'us-east-1'
-    Description: 'AWS Region where the Quick Start S3 bucket (QSS3BucketName) is 
-    hosted. Keep the default Region unless you are customizing the template. 
-    Changing this Region updates code references to point to a new Quick Start location. 
-    When using your own bucket, specify the Region. 
+    Description: 'Keep the default Region unless you are customizing the template or using assets located in a different bucket/region. 
+    Changing this Region updates code references to point to a new Quick Start location. When using your own bucket, specify the Region. 
     See https://aws-quickstart.github.io/option1.html.'
     Type: String
-
-Metadata:
-  AWS::CloudFormation::Interface:
-    ParameterGroups:
-      - Label:
-          default: 'Generator Configuration'
-        Parameters:
-          - GenerationState
-          - GenerationInterval
-          - TotalDevices
-          - DevicesPerWorker
-          - RegionalVoltage
-          - MinLoad
-          - MaxLoad
-      - Label:
-          default: 'Deployment Configuration'
-        Parameters:
-          - QSS3BucketName
-          - QSS3KeyPrefix
-          - QSS3BucketRegion
+    Default: 'us-east-1'
+Conditions:
+  UsingDefaultBucket: !Equals [ !Ref QSS3BucketName, 'aws-quickstart' ]
+  createTimestream: !Equals [ !Ref TimestreamCreation, 'Create New' ]
+  HSSCreateTimestream: !And
+    - !Equals ['Headend System Simulator', !Ref TimestreamStackOwner]
+    - !Condition createTimestream
+  DDGCreateTimestream: !And
+    - !Equals ['Device Data Generator', !Ref TimestreamStackOwner]
+    - !Condition createTimestream
+Resources:
+  DeviceDataGeneratorStack:
+    Type: 'AWS::CloudFormation::Stack'
+    Properties:
+      TemplateURL: !Sub
+        - 'https://${S3Bucket}.s3.${S3Region}.${AWS::URLSuffix}/${QSS3KeyPrefix}templates/device.data.generator.timestream.yaml'
+        - S3Region: !If [ UsingDefaultBucket, !Ref 'AWS::Region', !Ref QSS3BucketRegion ]
+          S3Bucket: !If [ UsingDefaultBucket, !Sub '${QSS3BucketName}-${AWS::Region}', !Ref QSS3BucketName ]
+      Parameters:
+        GenerationState: !Ref GenerationState
+        GenerationInterval: !Ref GenerationInterval
+        TotalDevices: !Ref TotalDevices
+        DevicesPerWorker: !Ref DevicesPerWorker
+        RegionalVoltage: !Ref RegionalVoltage
+        MinLoad: !Ref MinLoad
+        MaxLoad: !Ref MaxLoad
+        LateArrivalSimulate: !Ref LateArrivalSimulate
+        LateArrivalPercent: !Ref LateArrivalPercent
+        LateArrivalMinuteOffset: !Ref LateArrivalMinuteOffset
+        TimestreamCreation: !If [ DDGCreateTimestream, 'Create New', 'Use Existing' ]
+        TimestreamDatabaseName: !Ref TimestreamDatabaseName
+        TimestreamTableName: !Ref TimestreamTableName
+  HeadEndSystemSimulatorStack:
+    Type: 'AWS::CloudFormation::Stack'
+    Properties:
+      TemplateURL: !Sub
+        - 'https://${S3Bucket}.s3.${S3Region}.${AWS::URLSuffix}/${QSS3KeyPrefix}templates/headend.system.simulator.yaml'
+        - S3Region: !If [ UsingDefaultBucket, !Ref 'AWS::Region', !Ref QSS3BucketRegion ]
+          S3Bucket: !If [ UsingDefaultBucket, !Sub '${QSS3BucketName}-${AWS::Region}', !Ref QSS3BucketName ]
+      Parameters:
+        TimestreamCreation: !If [ HSSCreateTimestream, 'Create New', 'Use Existing'  ]
+        TimestreamDatabaseName: !Ref TimestreamDatabaseName
+        TimestreamTableName: !Ref TimestreamTableName
+        QSS3BucketName: !Ref QSS3BucketName
+        QSS3KeyPrefix: !Ref QSS3KeyPrefix
+Outputs:
+  StackName:
+    Description: 'Stack name'
+    Value: !Sub '${AWS::StackName}'
+  apiGatewayInvokeURL:
+    Description: 'API Gateway URL'
+    Value: !GetAtt HeadEndSystemSimulatorStack.Outputs.apiGatewayInvokeURL
+  SftpServerAddress:
+    Description: 'SFTP Server Address'
+    Value: !GetAtt HeadEndSystemSimulatorStack.Outputs.SftpServerAddress
+  SftpUserName:
+    Description: 'SFTP User Name'
+    Value: !GetAtt HeadEndSystemSimulatorStack.Outputs.SftpUserName
+  SecretARN:
+    Value: !GetAtt HeadEndSystemSimulatorStack.Outputs.SecretARN
+  SecretName:
+    Value: !GetAtt HeadEndSystemSimulatorStack.Outputs.SecretName
