@@ -3,7 +3,7 @@
 To post feedback, submit feature ideas, or report bugs, use the **Issues** section of this GitHub repo. 
 To submit code for this Quick Start, see the [AWS Quick Start Contributor's Kit](https://aws-quickstart.github.io/).
 
-## Overview 
+## Overview
 This Quick Start deploys a completely serverless solution on the AWS Cloud and simulates the generation of readings by utility meters and inserting into an Amazon Timestream table. If you are unfamiliar with AWS Quick Starts, refer to the [AWS Quick Start General Information Guide](https://fwd.aws/rA69w?).
 
 This Quick Start is for users who want to insert thousands, or even millions, of utility meter readings into an Amazon Timestream database at a frequent interval. It uses a CloudFormation template and allows for users to create a new Amazon Timestream database/table as a starting point for other solutions, or it can use an existing Amazon Timestream database/table. 
