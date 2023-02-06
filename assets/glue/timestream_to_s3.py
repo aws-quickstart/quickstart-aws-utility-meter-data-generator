@@ -46,7 +46,7 @@ try:
     records_query = (# nosec
     f"""( 
     	select
-    		time, device_id, measure_name, load, crrnt, pf, kva, kw, vltg
+    		time, arrival_time, device_id, measure_name, load, crrnt, pf, kva, kw, vltg
     	from {{timestream_database}}.{{timestream_table}}
     	where time >= '{{start_date}}'
     	and time <= '{{end_date}}'
@@ -73,6 +73,7 @@ try:
     
     datasource1 = datasource0 \
         .withColumn('time', date_format(col('time'), 'yyyy-MM-dd HH:mm:ss.SSSSSS')) \
+        .withColumn('arrival_time', date_format(col('arrival_time'), 'yyyy-MM-dd HH:mm:ss.SSSSSS'))
     
     # Convert to Dynamic Frame
     dynamicframe0 = DynamicFrame.fromDF(datasource1, glueContext, 'dynamicframe0')
