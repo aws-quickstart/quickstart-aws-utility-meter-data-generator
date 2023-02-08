@@ -22,6 +22,11 @@ Metadata:
           - TimestreamCreation
           - TimestreamDatabaseName
           - TimestreamTableName
+      - Label:
+          default: 'Deployment Configuration'
+        Parameters:
+          - QSS3BucketName
+          - QSS3KeyPrefix
     ParameterLabels: 
       GenerationState:
         default: 'What is the desired state generating device readings?'
@@ -49,6 +54,10 @@ Metadata:
         default: 'Name of the new or existing Timestream database'
       TimestreamTableName:
         default: 'Name of the new or existing Timestream table'
+      QSS3BucketName:
+        default: 'What is the name of the bucket in which the Quick Start assets are hosted?'
+      QSS3KeyPrefix:
+        default: 'What is the prefix (directory) in which the Qkick Start assets are located?'
 Parameters:
   GenerationState:
     Description: 'Change to DISABLE at any time to stop generation of device readings'
@@ -122,6 +131,33 @@ Parameters:
     Default: 'readings'
     MinLength: 3
     MaxLength: 256
+  SourceObjects:
+    Type: String
+    Default: 'assets/lambda/s3_copy_function/lambda.zip, assets/lambda/ddg_orchestrator_function/lambda.zip, assets/lambda/ddg_worker_function/lambda.zip'
+  QSS3BucketName:
+    Description:
+      'Keep the default bucket unless you are customizing the template or assets in a new location.
+      Changing the name updates code references to point to a new Quick Start location.
+      This name can include numbers, lowercase letters, uppercase letters, and hyphens, but do not start or end with a hyphen (-).
+      See https://aws-quickstart.github.io/option1.html.'
+    Type: String
+    Default: 'aws-quickstart'
+    AllowedPattern: '^[0-9a-zA-Z]+([0-9a-zA-Z-]*[0-9a-zA-Z])*$'
+    ConstraintDescription:
+      'The Quick Start bucket name can include numbers, lowercase letters, uppercase letters, and hyphens (-).
+      It cannot start or end with a hyphen (-).'
+  QSS3KeyPrefix:
+    Description:
+      'Keep the default prefix unless you are customizing the template or asset location.
+      Changing this prefix updates code references to point to a new Quick Start location.
+      This prefix can include numbers, lowercase letters, uppercase letters, hyphens (-), and forward slashes (/).
+      End with a forward slash. See https://docs.aws.amazon.com/AmazonS3/latest/dev/UsingMetadata.html and https://aws-quickstart.github.io/option1.html.'
+    Type: String
+    Default: 'quickstart-aws-utility-meter-data-generator/'
+    AllowedPattern: '^[0-9a-zA-Z-/]*$'
+    ConstraintDescription:
+      'The Quick Start S3 key prefix can include numbers, lowercase letters, uppercase letters, hyphens (-), and forward slashes (/).
+      The prefix should end with a forward slash (/).'
 Conditions:
   createTimestream: !Equals [ !Ref TimestreamCreation, 'Create New']
 Resources:
@@ -139,6 +175,88 @@ Resources:
       RetentionProperties:
         MemoryStoreRetentionPeriodInHours: 168
         MagneticStoreRetentionPeriodInDays: 30
+  DdgBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
+  S3CopyLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          Effect: 'Allow'
+          Action:
+            - 'sts:AssumeRole'
+          Principal:
+            Service:
+              - lambda.amazonaws.com
+  S3CopyLambdaPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      Roles:
+        - !Ref S3CopyLambdaRole
+      PolicyName: !Sub '${AWS::Region}-${S3CopyLambdaFunction}-policy'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: 'Allow'
+            Action:
+              - 's3:GetObject'
+            Resource:
+              - !Sub 'arn:aws:s3:::${QSS3BucketName}/*'
+          - Effect: 'Allow'
+            Action:
+              - 's3:ListBucket'
+              - 's3:GetBucketLocation'
+              - 's3:ListBucketMultipartUploads'
+            Resource: !Sub '${DdgBucket.Arn}'
+          - Effect: 'Allow'
+            Action:
+              - 's3:CopyObject'
+              - 's3:PutObject'
+              - 's3:PutObjectAcl'
+              - 's3:DeleteObject'
+              - 's3:DeleteObjects'
+              - 's3:CreateMultipartUpload'
+              - 's3:AbortMultipartUpload'
+              - 's3:ListMultipartUploadParts'
+            Resource:
+              - !Sub '${DdgBucket.Arn}/*'
+          - Effect: 'Allow'
+            Action:
+              - 'logs:CreateLogStream'
+              - 'logs:PutLogEvents'
+            Resource:
+              - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${S3CopyLambdaFunction}'
+              - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${S3CopyLambdaFunction}:*'
+              - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${S3CopyLambdaFunction}:*:*'
+  S3CopyInvoke:
+    Type: AWS::CloudFormation::CustomResource
+    Version: '1.0'
+    DependsOn: S3CopyLambdaPolicy
+    Properties:
+      ServiceToken: !GetAtt S3CopyLambdaFunction.Arn
+      SourceBucket: !Ref QSS3BucketName
+      SourcePrefix: !Ref QSS3KeyPrefix
+      Objects: !Ref SourceObjects
+      DestBucket: !Ref DdgBucket
+  S3CopyLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Role: !GetAtt S3CopyLambdaRole.Arn
+      Runtime: python3.9
+      MemorySize: 512
+      Timeout: 120
+      ReservedConcurrentExecutions: 1
+      Handler: 'lambda_function.lambda_handler'
+      Code:
+        S3Bucket: !Ref QSS3BucketName
+        S3Key: !Sub '${QSS3KeyPrefix}assets/lambda/s3_copy_function/lambda.zip'
+  S3CopyLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${S3CopyLambdaFunction}'
+      RetentionInDays: 90
   WorkerSQSQueue:
     Type: AWS::SQS::Queue
     Properties:
@@ -181,6 +299,7 @@ Resources:
         Version: '2012-10-17'
   WorkerLambdaFunction:
     Type: AWS::Lambda::Function
+    DependsOn: S3CopyInvoke
     Properties:
       Role: !GetAtt WorkerLambdaRole.Arn
       Runtime: python3.9
@@ -196,105 +315,10 @@ Resources:
           LATE_ARRIVAL_SIMULATE: !Ref LateArrivalSimulate
           LATE_ARRIVAL_PERCENT: !Ref LateArrivalPercent
           LATE_ARRIVAL_MINUTE_OFFSET: !Ref LateArrivalMinuteOffset
-      Handler: 'index.lambda_handler'
+      Handler: 'lambda_function.lambda_handler'
       Code:
-        ZipFile: |
-          import os
-          import json
-          import uuid
-          import boto3
-          import random
-          import botocore
-          from datetime import datetime
-          late_arrival_minute_offset = int(os.environ['LATE_ARRIVAL_MINUTE_OFFSET'])
-          late_arrival_percent = int(os.environ['LATE_ARRIVAL_PERCENT'])
-          late_arrival_simulate = os.environ['LATE_ARRIVAL_SIMULATE']
-          max_laod = float(os.environ['MAX_LOAD']) #maximum load across all devices
-          min_load = float(os.environ['MIN_LOAD']) #minimum load across all devices
-          region_voltage = int(os.environ['REGION_VOLTAGE']) #country-specific reference voltage
-          timestream_database = os.environ['TIMESTREAM_DATABASE']
-          timestream_table = os.environ['TIMESTREAM_TABLE']
-          session = boto3.Session()
-          write_client = session.client('timestream-write')
-          write_batch_size = 100
-          def generate_readings(device_index, reading_time, arrival_time):
-            try:
-              device_id = str(uuid.uuid3(uuid.NAMESPACE_OID, str(device_index)))
-              readings = {'Time': str(reading_time), 'Dimensions': [{'Name': 'device_id', 'Value': device_id, 'DimensionValueType': 'VARCHAR'}], 'MeasureValues': []}
-              #create persistent load in range for device based on device_index
-              random.seed(device_index) #set seed
-              load = int(random.uniform(min_load, max_laod))
-              random.seed(None) #unset seed
-              pf = random.uniform(0.8, 0.99)
-              ldf = random.uniform(0, 10)
-              kw = load * (ldf / 10)
-              kva = kw / pf
-              vltg = (random.uniform(0, 1) * (round(region_voltage * 1.1, 2) - round(region_voltage * 0.9, 2)) + round(region_voltage * 0.9, 2)) / 1000
-              crrnt = kva / vltg
-              readings['MeasureValues'].append({'Name': 'arrival_time', 'Value': arrival_time, 'Type': 'TIMESTAMP'})
-              readings['MeasureValues'].append({'Name': 'load', 'Value': str(load), 'Type': 'BIGINT'})
-              readings['MeasureValues'].append({'Name': 'pf', 'Value': str(round(pf, 3)), 'Type': 'DOUBLE'})
-              readings['MeasureValues'].append({'Name': 'kw', 'Value': str(round(kw, 3)), 'Type': 'DOUBLE'})
-              readings['MeasureValues'].append({'Name': 'kva', 'Value': str(round(kva, 3)), 'Type': 'DOUBLE'})
-              readings['MeasureValues'].append({'Name': 'vltg', 'Value': str(round(vltg, 3)), 'Type': 'DOUBLE'})
-              readings['MeasureValues'].append({'Name': 'crrnt', 'Value': str(round(crrnt, 3)), 'Type': 'DOUBLE'})
-              return readings
-            except Exception as e:
-              raise ValueError(e) from None
-          def write_records(records, common_attributes):
-            try:
-              result = write_client.write_records(
-                DatabaseName = timestream_database,
-                TableName = timestream_table,
-                Records = records,
-                CommonAttributes = common_attributes
-              )
-            except botocore.exceptions.ClientError as e:
-              raise ValueError(e) from None
-          def lambda_handler(event, context):
-            try:
-              # Parse lambda event
-              for record in event['Records']:
-                item = json.loads(record['body'])
-                job_start = datetime.now()
-                if late_arrival_simulate == 'ENABLED':
-                  late_devices = int((item['RangeEnd'] - item['RangeStart'] + 1) * (late_arrival_percent * .01))
-                else:
-                  late_devices = 0
-                job_log = {
-                  'batch_id': item['BatchId'],
-                  'batch_time': item['BatchTime'],
-                  'range_start': item['RangeStart'],
-                  'range_end': item['RangeEnd'],
-                  'late_devices': late_devices,
-                  'start': job_start.replace(microsecond=0).isoformat(),
-                  'late_arrival_percent': late_arrival_percent,
-                  'records_total': 0,
-                  'timestream_writes': 0
-                } 
-                # Generate records for given range and write in batches to Timestream
-                for i in range(item['RangeStart'], item['RangeEnd'] + 1, write_batch_size):
-                  records = []
-                  for device_index in range(i, min(i + write_batch_size - 1, item['RangeEnd']) + 1):
-                    common_attributes = {'MeasureName': 'readings', 'MeasureValueType': 'MULTI'}
-                    if device_index <= late_devices:
-                      reading_time = str(int(item['BatchTime']) - int(late_arrival_minute_offset * 60 * 1000))
-                    else:
-                      reading_time = str(item['BatchTime'])
-                    record = generate_readings(device_index=device_index, reading_time=reading_time, arrival_time=str(item['BatchTime']))
-                    job_log['records_total'] += 1
-                    records.append(record)
-                  write_records(records, common_attributes)
-                  job_log['timestream_writes'] += 1
-                # Job Logging
-                job_end = datetime.now()
-                job_log['end'] = job_end.replace(microsecond=0).isoformat()
-                job_duration = job_end - job_start
-                job_log['duration_sec'] = (job_duration).total_seconds()
-                job_log['records_avg_per_sec'] = float('{:.2f}'.format(job_log['records_total']/job_duration.total_seconds()))
-                print(json.dumps(job_log))
-            except ValueError as e:
-              print(json.dumps(str(e)))
+        S3Bucket: !Ref DdgBucket
+        S3Key: 'assets/lambda/ddg_worker_function/lambda.zip'
   WorkerLogGroup:
     Type: 'AWS::Logs::LogGroup'
     Properties:
@@ -345,6 +369,7 @@ Resources:
         Version: '2012-10-17'
   OrchestratorLambdaFunction:
     Type: AWS::Lambda::Function
+    DependsOn: S3CopyInvoke
     Properties:
       Role: !GetAtt OrchestratorLambdaRole.Arn
       Runtime: python3.9
@@ -356,70 +381,10 @@ Resources:
           DEVICE_COUNT: !Ref TotalDevices
           RECORDS_PER_WORKER: !Ref DevicesPerWorker
           GENERATION_INTERVAL_MINUTES: !Ref GenerationInterval
-      Handler: 'index.lambda_handler'
+      Handler: 'lambda_function.lambda_handler'
       Code:
-        ZipFile: |
-          import os
-          import json
-          import uuid
-          import boto3
-          from datetime import datetime
-          # Job Settings
-          queue_url = os.environ['WORKER_QUEUE_URL']
-          device_count = int(os.environ['DEVICE_COUNT'])
-          generation_interval_minutes = int(os.environ['GENERATION_INTERVAL_MINUTES'])
-          records_per_worker = int(os.environ['RECORDS_PER_WORKER'])
-          sqs_client = boto3.client('sqs')
-          def write_sqs(jobs):
-            job_log = {'total_readings': 0, 'sqs_messages': 0, 'sqs_api_calls': 0}
-            sqs_batch_size = 10
-            chunks = [jobs[x:x+sqs_batch_size] for x in range(0, len(jobs), sqs_batch_size)]
-            for chunk in chunks:
-              job_log['sqs_api_calls'] += 1
-              dt = datetime.now().replace(microsecond=0)
-              dt_epoch = datetime.now().replace(microsecond=0).timestamp()
-              dt_friendly = datetime.now().replace(microsecond=0).isoformat()
-              entries = []
-              for x in chunk:
-                #print('Worker reading generation request for devices ' + str(x['start'] + 1) + ' to ' + str(x['end']) + ' at ' + str(dt_friendly))
-                job_log['sqs_messages'] += 1
-                job_log['total_readings'] += x['end'] - x['start']
-                entry = {
-                  'Id': '-'.join(['WorkerReadings',str(x['start']),str(x['end']),str(int(dt_epoch))]),
-                  'MessageBody': json.dumps({
-                    'RangeStart': x['start'] + 1,
-                    'RangeEnd': x['end'],
-                    'TotalDevices': x['end'] - x['start'],
-                    'BatchId': x['batch_id'],
-                    'BatchTime': x['batch_time']
-                  })
-                }
-                entries.append(entry)
-              response = sqs_client.send_message_batch(QueueUrl=queue_url, Entries=entries)
-            return(job_log)
-          def lambda_handler(event, context):
-            batch_id = str(uuid.uuid4())
-            batch_time = int(datetime.now().timestamp()//(int(generation_interval_minutes) * 60) * (int(generation_interval_minutes) * 60)) * 1000
-            job_log = {}
-            job_start = datetime.now()
-            jobs = []
-            for i in range(0, device_count, records_per_worker):
-              job = {
-                'batch_id': batch_id,
-                'batch_time': batch_time,
-                'start': i,
-                'end': min((i + records_per_worker), device_count)}
-              jobs.append(job)
-            job_results = write_sqs(jobs)
-            job_log.update(job_results)
-            job_end = datetime.now()
-            job_duration = job_end - job_start
-            job_log['batch_id'] = str(batch_id)
-            job_log['batch_time'] = batch_time
-            job_log['start'] = job_start.replace(microsecond=0).isoformat()
-            job_log['end'] = job_end.replace(microsecond=0).isoformat()
-            job_log['duration_sec'] = job_duration.total_seconds()
-            print(json.dumps(job_log))
+        S3Bucket: !Ref DdgBucket
+        S3Key: 'assets/lambda/ddg_orchestrator_function/lambda.zip'
   OrchestratorLogGroup:
     Type: 'AWS::Logs::LogGroup'
     Properties:
