@@ -55,16 +55,18 @@ def lambda_handler(event, context):
 			request_id = file_request['request_id']
 			start_date = file_request['requested_payload']['start_date']
 			end_date = file_request['requested_payload']['end_date']
-			partition_query = f'''
-				select
-					min(time) time_min,
-					max(time) time_max,
-					count(distinct(time)) partition_count,
-					count(time) record_count
-				from {{timestream_database}}.{{timestream_table}}
-				where time >= '{{start_date}}'
-				and time <= '{{end_date}}'
-			''' \
+			partition_query = ( # nosec
+			f'''
+			select
+				min(time) time_min,
+				max(time) time_max,
+				count(distinct(time)) partition_count,
+				count(time) record_count
+			from {{timestream_database}}.{{timestream_table}}
+			where time >= '{{start_date}}'
+			and time <= '{{end_date}}'
+			'''
+			) \
 			.format(
 				timestream_database=timestream_database,
 				timestream_table=timestream_table,

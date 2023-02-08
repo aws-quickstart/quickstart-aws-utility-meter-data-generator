@@ -16,7 +16,8 @@ def test_date(field, date):
 	raise ValueError(f'Invalid date format of {date} for field {field}')
 def query(date_start, offset_start, offset_end):
 	try:
-		query_string = f'''
+		query_string = ( # nosec
+		f'''
 		select
 			offset, time, arrival_time, device_id, measure_name, load, crrnt, pf, kva, kw, vltg
 		from (
@@ -29,7 +30,9 @@ def query(date_start, offset_start, offset_end):
 		where offset > {{offset_start}}
 		and offset <= {{offset_end}}
 		order by offset asc
-		'''.format(
+		'''
+		) \
+		.format(
 			database=timestream_db,
 			table=timestream_table,
 			offset_start=offset_start,

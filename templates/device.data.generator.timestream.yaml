@@ -191,6 +191,13 @@ Resources:
             Service:
               - lambda.amazonaws.com
   S3CopyLambdaPolicy:
+    Metadata:
+      cfn-lint:
+        config:
+          ignore_checks:
+            - E9101
+          ignore_reasons:
+            E9101: 'AbortMultipartUpload is an s3 action and can not be renamed'
     Type: AWS::IAM::Policy
     Properties:
       Roles:
@@ -203,7 +210,7 @@ Resources:
             Action:
               - 's3:GetObject'
             Resource:
-              - !Sub 'arn:aws:s3:::${QSS3BucketName}/*'
+              - !Sub 'arn:${AWS::Partition}:s3:::${QSS3BucketName}/*'
           - Effect: 'Allow'
             Action:
               - 's3:ListBucket'

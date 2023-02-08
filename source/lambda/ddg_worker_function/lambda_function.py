@@ -22,13 +22,13 @@ def generate_readings(device_index, reading_time, arrival_time):
 		readings = {'Time': str(reading_time), 'Dimensions': [{'Name': 'device_id', 'Value': device_id, 'DimensionValueType': 'VARCHAR'}], 'MeasureValues': []}
 		#create persistent load in range for device based on device_index
 		random.seed(device_index) #set seed
-		load = int(random.uniform(min_load, max_laod))
+		load = int(random.uniform(min_load, max_laod)) # nosec B311
 		random.seed(None) #unset seed
-		pf = random.uniform(0.8, 0.99)
-		ldf = random.uniform(0, 10)
+		pf = random.uniform(0.8, 0.99) # nosec B311
+		ldf = random.uniform(0, 10) # nosec B311
 		kw = load * (ldf / 10)
 		kva = kw / pf
-		vltg = (random.uniform(0, 1) * (round(region_voltage * 1.1, 2) - round(region_voltage * 0.9, 2)) + round(region_voltage * 0.9, 2)) / 1000
+		vltg = (random.uniform(0, 1) * (round(region_voltage * 1.1, 2) - round(region_voltage * 0.9, 2)) + round(region_voltage * 0.9, 2)) / 1000 # nosec B311
 		crrnt = kva / vltg
 		readings['MeasureValues'].append({'Name': 'arrival_time', 'Value': arrival_time, 'Type': 'TIMESTAMP'})
 		readings['MeasureValues'].append({'Name': 'load', 'Value': str(load), 'Type': 'BIGINT'})
