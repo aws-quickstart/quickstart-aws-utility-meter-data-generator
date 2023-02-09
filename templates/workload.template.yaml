@@ -205,6 +205,8 @@ Resources:
         TimestreamCreation: !If [ DDGCreateTimestream, 'Create New', 'Use Existing' ]
         TimestreamDatabaseName: !Ref TimestreamDatabaseName
         TimestreamTableName: !Ref TimestreamTableName
+        QSS3BucketName: !Ref QSS3BucketName
+        QSS3KeyPrefix: !Ref QSS3KeyPrefix
   HeadEndSystemSimulatorStack:
     Type: 'AWS::CloudFormation::Stack'
     Properties:

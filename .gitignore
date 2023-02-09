@@ -1,5 +1,26 @@
+# TaskCat
+.taskcat/
+taskcat_outputs/
+.taskcat_overrides.yml
+*.zip
+output/
+
+# Build Files
+/assets/lambda/
+
+# macOS
 .DS_Store
-taskcat_outputs/*
-.idea
+
+# IDE workspace settings
+.idea/
+.vscode/
+
+# Python
+__pycache__
+.python-version
+venv/
+.venv/
+env/
+
+# Custom Stack Config
 stack-parameter.json
-.taskcat

@@ -44,7 +44,7 @@ Parameters:
     MaxLength: 256
   SourceObjects:
     Type: String
-    Default: 'assets/jars/amazon-timestream-jdbc-1.0.2.jar, assets/lambda/layer/cryptography_py3_9.zip, assets/lambda/layer/awswrangler-layer-2.16.1-py3.9.zip, assets/glue/timestream_to_s3.py'
+    Default: 'assets/lambda/cryptography_py3_9_layer/lambda.zip, assets/lambda/awswrangler_py3_9_layer/lambda.zip, assets/lambda/s3_copy_function/lambda.zip, assets/lambda/hss_create_secret_function/lambda.zip, assets/lambda/hss_readings_get_function/lambda.zip, assets/lambda/hss_readings_file_get_function/lambda.zip, assets/lambda/hss_readings_file_post_function/lambda.zip, assets/lambda/hss_readings_file_worker_function/lambda.zip, assets/glue/jars/amazon-timestream-jdbc-1.0.2.jar, assets/glue/scripts/timestream_to_s3.py'
   QSS3BucketName:
     Description:
       'Keep the default bucket unless you are customizing the template or assets in a new location.
@@ -111,18 +111,11 @@ Resources:
       ProvisionedThroughput:
         ReadCapacityUnits: 5
         WriteCapacityUnits: 5
-  HesSimulatorBucket:
+  HssSimulatorBucket:
     Type: AWS::S3::Bucket
     DeletionPolicy: Delete
   S3CopyLambdaRole:
     Type: AWS::IAM::Role
-    Metadata:
-      cfn-lint:
-        config:
-          ignore_checks:
-            - E9101
-          ignore_reasons:
-            E9101: Use welcoming and inclusive language
     Properties:
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
@@ -133,44 +126,63 @@ Resources:
           Principal:
             Service:
               - lambda.amazonaws.com
-      Path: /
-      ManagedPolicyArns:
-        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
-      Policies:
-        - PolicyName: lambda-copier
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: 'Allow'
-                Action:
-                  - 's3:GetObject'
-                Resource:
-                  - !Sub 'arn:${AWS::Partition}:s3:::${QSS3BucketName}/${QSS3KeyPrefix}*'
-              - Effect: 'Allow'
-                Action:
-                  - 's3:CopyObject'
-                  - 's3:PutObject'
-                  - 's3:PutObjectAcl'
-                  - 's3:DeleteObject'
-                  - 's3:DeleteObjects'
-                  - 's3:ListBucket'
-                  - 's3:GetBucketLocation'
-                  - 's3:ListBucketMultipartUploads'
-                  - 's3:CreateMultipartUpload'
-                  - 's3:AbortMultipartUpload'
-                  - 's3:ListMultipartUploadParts'
-                Resource:
-                  - !Sub ${HesSimulatorBucket.Arn}/*
-                  - !Sub ${HesSimulatorBucket.Arn}
+  S3CopyLambdaPolicy:
+    Metadata:
+      cfn-lint:
+        config:
+          ignore_checks:
+            - E9101
+          ignore_reasons:
+            E9101: 'AbortMultipartUpload is an s3 action and can not be renamed'
+    Type: AWS::IAM::Policy
+    Properties:
+      Roles:
+        - !Ref S3CopyLambdaRole
+      PolicyName: !Sub '${AWS::Region}-${S3CopyLambdaFunction}-policy'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: 'Allow'
+            Action:
+              - 's3:GetObject'
+            Resource:
+              - !Sub 'arn:${AWS::Partition}:s3:::${QSS3BucketName}/*'
+          - Effect: 'Allow'
+            Action:
+              - 's3:ListBucket'
+              - 's3:GetBucketLocation'
+              - 's3:ListBucketMultipartUploads'
+            Resource: !Sub '${HssSimulatorBucket.Arn}'
+          - Effect: 'Allow'
+            Action:
+              - 's3:CopyObject'
+              - 's3:PutObject'
+              - 's3:PutObjectAcl'
+              - 's3:DeleteObject'
+              - 's3:DeleteObjects'
+              - 's3:CreateMultipartUpload'
+              - 's3:AbortMultipartUpload'
+              - 's3:ListMultipartUploadParts'
+            Resource:
+              - !Sub '${HssSimulatorBucket.Arn}/*'
+          - Effect: 'Allow'
+            Action:
+              - 'logs:CreateLogStream'
+              - 'logs:PutLogEvents'
+            Resource:
+              - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${S3CopyLambdaFunction}'
+              - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${S3CopyLambdaFunction}:*'
+              - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${S3CopyLambdaFunction}:*:*'
   S3CopyInvoke:
     Type: AWS::CloudFormation::CustomResource
     Version: '1.0'
+    DependsOn: S3CopyLambdaPolicy
     Properties:
       ServiceToken: !GetAtt S3CopyLambdaFunction.Arn
       SourceBucket: !Ref QSS3BucketName
       SourcePrefix: !Ref QSS3KeyPrefix
       Objects: !Ref SourceObjects
-      DestBucket: !Ref HesSimulatorBucket
+      DestBucket: !Ref HssSimulatorBucket
   S3CopyLambdaFunction:
     Type: AWS::Lambda::Function
     Properties:
@@ -179,49 +191,10 @@ Resources:
       MemorySize: 512
       Timeout: 120
       ReservedConcurrentExecutions: 1
-      Handler: 'index.lambda_handler'
+      Handler: 'lambda_function.lambda_handler'
       Code:
-        ZipFile: |
-          import json
-          import boto3
-          import logging
-          import threading
-          import cfnresponse
-          logging.getLogger().setLevel(logging.INFO)
-          def copy_objects(source_bucket, dest_bucket, objects, source_prefix):
-            s3 = boto3.client('s3')
-            logging.info(f"Source {source_bucket}, Destination {dest_bucket}, Obj {objects}")
-            for obj in objects:
-              file_path = f"{source_prefix}{obj}"
-              logging.info(file_path)
-              copy_source = {'Bucket': source_bucket, 'Key': file_path}
-              s3.copy_object(CopySource=copy_source, Bucket=dest_bucket, Key=obj)
-          def delete_objects(bucket, objects):
-            s3 = boto3.client('s3')
-            objects = {'Objects': [{'Key': obj} for obj in objects]}
-            s3.delete_objects(Bucket=bucket, Delete=objects)
-          def timeout(event, context):
-            logging.error('Execution is about to time out, sending failure response to CloudFormation')
-            cfnresponse.send(event, context, cfnresponse.FAILED, {}, None)
-          def lambda_handler(event, context):
-            timer = threading.Timer((context.get_remaining_time_in_millis() / 1000.00) - 0.5, timeout, args=[event, context])
-            timer.start()
-            try:
-              source_bucket = event['ResourceProperties']['SourceBucket']
-              source_prefix = event['ResourceProperties']['SourcePrefix']
-              dest_bucket = event['ResourceProperties']['DestBucket']
-              objects = [ obj.strip() for obj in event['ResourceProperties']['Objects'].split(',') ]
-              if event['RequestType'] == 'Delete':
-                delete_objects(dest_bucket, objects)
-              else:
-                copy_objects(source_bucket, dest_bucket, objects, source_prefix)
-              status = cfnresponse.SUCCESS
-            except Exception as e:
-              logging.error('Exception: %s' % e, exc_info=True)
-              status = cfnresponse.FAILED
-            finally:
-              timer.cancel()
-              cfnresponse.send(event, context, status, {}, None)
+        S3Bucket: !Ref QSS3BucketName
+        S3Key: !Sub '${QSS3KeyPrefix}assets/lambda/s3_copy_function/lambda.zip'
   S3CopyLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
@@ -238,8 +211,8 @@ Resources:
       CompatibleArchitectures:
         - 'x86_64'
       Content:
-        S3Bucket: !Ref HesSimulatorBucket
-        S3Key: 'assets/lambda/layer/cryptography_py3_9.zip'
+        S3Bucket: !Ref HssSimulatorBucket
+        S3Key: 'assets/lambda/cryptography_py3_9_layer/lambda.zip'
       LicenseInfo: 'Apache 2.0'
   CreateSecretLambdaRole:
     Type: AWS::IAM::Role
@@ -286,6 +259,7 @@ Resources:
       ServiceToken: !GetAtt CreateSecretLambdaFunction.Arn
   CreateSecretLambdaFunction:
     Type: AWS::Lambda::Function
+    DependsOn: S3CopyInvoke
     Properties:
       Role: !GetAtt CreateSecretLambdaRole.Arn
       Runtime: python3.9
@@ -294,76 +268,10 @@ Resources:
       Layers:
         - !Ref CryptographyLayer39
       ReservedConcurrentExecutions: 1
-      Handler: 'index.lambda_handler'
+      Handler: 'lambda_function.lambda_handler'
       Code:
-        ZipFile: |
-          import os
-          import json
-          import boto3
-          import cfnresponse
-          import botocore.exceptions
-          from cryptography.hazmat.primitives.asymmetric import rsa
-          from cryptography.hazmat.primitives import serialization as crypto_serialization
-          from cryptography.hazmat.backends import default_backend as crypto_default_backend
-          sm_client = boto3.client('secretsmanager')
-          def generate_key_pair():
-            try:
-              key = rsa.generate_private_key(
-                backend=crypto_default_backend(),
-                public_exponent=65537,
-                key_size=2048
-              )
-              private_key = key.private_bytes(
-                crypto_serialization.Encoding.PEM,
-                crypto_serialization.PrivateFormat.TraditionalOpenSSL,
-                crypto_serialization.NoEncryption()
-              ).decode('utf-8')
-              public_key = key.public_key().public_bytes(
-                crypto_serialization.Encoding.OpenSSH,
-                crypto_serialization.PublicFormat.OpenSSH
-              ).decode('utf-8')
-              return {'private': private_key, 'public': public_key}
-            except Exception as e:
-              raise ValueError(e)
-          def create_secret(secret_name, secret_string):
-            try:
-              response = sm_client.create_secret(Name = secret_name, SecretString = secret_string)
-              return {'Result': 'secret successfully created', 'SecretARN': response['ARN'], 'SecretName': response['Name']}
-            except botocore.exceptions.ClientError as error:
-              if error.response['Error']['Code'] == 'ResourceExistsException':
-                response = describe_secret(secret_name)
-                raise ValueError({'Result': error.response['Message']})
-              else:
-                raise ValueError({'Result': error.response['Message']})
-          def delete_secret(secret_name):
-            try:
-              response = sm_client.delete_secret(SecretId = secret_name, ForceDeleteWithoutRecovery = True)
-              return {'Result': 'secret successfully deleted', 'SecretARN': response['ARN'], 'SecretName': response['Name']}
-            except botocore.exceptions.ClientError as error:
-              raise ValueError({'Result': error.response['Message']})
-          def describe_secret(secret_name):
-            try:
-              response = sm_client.describe_secret(SecretId = secret_name)
-              return response
-            except botocore.exceptions.ClientError as error:
-              raise ValueError({'Result': error.response['Message']})
-          def lambda_handler(event, context):
-            try:
-              secret_name = ('/').join([(event['StackId'].split('/')[1]),'sftp','private_key'])
-              if event['RequestType'] == 'Create':
-                keys = generate_key_pair()
-                responseData = create_secret(secret_name, keys['private'])
-                responseData['PublicKey'] = keys['public']
-                cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData)
-              elif event['RequestType'] == 'Delete':
-                responseData = delete_secret(secret_name)
-                cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData)
-            except ValueError as error:
-              responseData = {'Result': error.response['Message']}
-              cfnresponse.send(event, context, cfnresponse.FAILED, responseData)
-            except Exception as error:
-              responseData = {'Result': str(error)}
-              cfnresponse.send(event, context, cfnresponse.FAILED, responseData)
+        S3Bucket: !Ref HssSimulatorBucket
+        S3Key: 'assets/lambda/hss_create_secret_function/lambda.zip'
   CreateSecretLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
@@ -458,13 +366,15 @@ Resources:
     Type: AWS::Lambda::LayerVersion
     DependsOn: S3CopyInvoke
     Properties:
-      LayerName: 'aws-data-wrangler-2_15_1-py3_9'
+      LayerName: 'awswrangler_py3_9'
       Description: 'AWS Data Wrangler Lambda Layer - 2.16.1 (Python 3.9)'
       CompatibleRuntimes:
-        - python3.9
+        - 'python3.9'
+      CompatibleArchitectures:
+        - 'x86_64'
       Content:
-        S3Bucket: !Ref HesSimulatorBucket
-        S3Key: 'assets/lambda/layer/awswrangler-layer-2.16.1-py3.9.zip'
+        S3Bucket: !Ref HssSimulatorBucket
+        S3Key: 'assets/lambda/awswrangler_py3_9_layer/lambda.zip'
       LicenseInfo: 'Apache 2.0'
   RequestParameterValidator:
     Type: AWS::ApiGateway::RequestValidator
@@ -480,6 +390,7 @@ Resources:
       ValidateRequestParameters: false
   ReadingsGetLambdaFunction:
     Type: AWS::Lambda::Function
+    DependsOn: S3CopyInvoke
     Properties:
       Role: !GetAtt ReadingsGetLambdaRole.Arn
       Runtime: python3.9
@@ -491,103 +402,10 @@ Resources:
         Variables:
           TIMESTREAM_DATABASE: !If [ createTimestream, !Ref TimestreamDatabase, !Ref TimestreamDatabaseName ]
           TIMESTREAM_TABLE: !If [ createTimestream, !GetAtt TimestreamTable.Name, !Ref TimestreamTableName ]
-      Handler: 'index.lambda_handler'
+      Handler: 'lambda_function.lambda_handler'
       Code:
-        ZipFile: |
-          import os
-          import json
-          import boto3
-          import awswrangler as wr
-          from datetime import datetime
-          timestream_db = os.environ['TIMESTREAM_DATABASE']
-          timestream_table = os.environ['TIMESTREAM_TABLE']
-          client = boto3.client('timestream-query')
-          def test_date(field, date):
-            date_formats = ['%Y-%m-%d %H:%M:%S.%f', '%Y-%m-%d %H:%M:%S.%f000', '%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M', '%Y-%m-%d %H:%M']
-            for date_format in date_formats:
-              try:
-                return datetime.strptime(date, date_format)
-              except ValueError:
-                pass
-            raise ValueError(f'Invalid date format of {date} for field {field}')
-          def query(date_start, offset_start, offset_end):
-            try:
-              query_string = f'''
-              select *
-              from (
-                select
-                  row_number() over (order by time asc, device_id asc) offset,
-                  *
-                from {{database}}.{{table}}
-                where time >= '{{date_start}}'
-              )
-              where offset > {{offset_start}}
-              and offset <= {{offset_end}}
-              order by offset asc
-              '''.format(
-                database=timestream_db,
-                table=timestream_table,
-                offset_start=offset_start,
-                offset_end=offset_end,
-                date_start=date_start
-              )
-              df = wr.timestream.query(query_string)
-              df['time'] = df['time'].dt.strftime('%Y-%m-%d %H:%M:%S.%f')          
-              return df
-            except Exception as e:
-              print(e)
-              return None
-          def lambda_handler(event, context):
-            try:
-              job_start = datetime.now()
-              job_log = {'start': job_start.replace(microsecond=0).isoformat(), 'records_total': 0}
-              params = event['queryStringParameters']
-              if 'start_date' in params:
-                formatted_date = test_date('start_date', params['start_date'])
-                params.update({'start_date': formatted_date.strftime('%Y-%m-%d %H:%M:%S.%f')})
-              else:
-                raise ValueError(f'start_date is a required field')
-              if 'offset' in params:
-                params.update({'offset': int(params['offset'])})
-              else:
-                params.update({'offset': 0})
-              if 'page_size' in params:
-                params.update({'page_size': int(params['page_size'])})
-              else:
-                params.update({'page_size': 10})
-              results = query(params['start_date'], params['offset'], params['offset'] + params['page_size'])          
-              payload = {
-                'filter_params': {'start_date': params['start_date'],'offset': params['offset']},
-                'results': {'records_total': job_log['records_total']},
-                'records': []
-              }
-              if results is not None:
-                records = results.to_dict(orient='records')
-                job_log['records_total'] += len(records)
-                last_record = records[-1]
-                payload['results'].update({'records_total': job_log['records_total']})
-                payload['results'].update({'last_date': last_record['time']})
-                payload['results'].update({'last_offset': last_record['offset']})
-                payload['records'] =records
-              # Job Logging
-              job_end = datetime.now()
-              job_log['end'] = job_end.replace(microsecond=0).isoformat()
-              job_duration = job_end - job_start
-              job_log['duration_sec'] = (job_duration).total_seconds()
-              job_log['records_avg_per_sec'] = float('{:.2f}'.format(job_log['records_total']/job_duration.total_seconds()))
-              print(json.dumps(job_log))
-              return {
-                'statusCode': 200,
-                'headers': {'Content-Type': 'application/json'},
-                'body': json.dumps(payload)
-              }
-            except Exception as e:
-              print(json.dumps({'error': str(e)}))
-              return {
-                'statusCode': 500,
-                'headers': {'Content-Type': 'application/json'},
-                'body': json.dumps({'error': str(e)})
-              }
+        S3Bucket: !Ref HssSimulatorBucket
+        S3Key: 'assets/lambda/hss_readings_get_function/lambda.zip'
   ReadingsGetLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
@@ -641,6 +459,7 @@ Resources:
             Resource: !If [ createTimestream, !GetAtt TimestreamTable.Arn, !Join [ '/', [ !Join [ ':', [ 'arn' , 'aws', 'timestream', !Ref AWS::Region, !Ref AWS::AccountId, 'database' ] ] , !Ref TimestreamDatabaseName, 'table', !Ref TimestreamTableName ] ] ]
   ReadingsFileGetLambdaFunction:
     Type: AWS::Lambda::Function
+    DependsOn: S3CopyInvoke
     Properties:
       Role: !GetAtt ReadingsFileGetLambdaRole.Arn
       Runtime: python3.9
@@ -649,55 +468,10 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE: !Ref DynamoTable
-      Handler: 'index.lambda_handler'
+      Handler: 'lambda_function.lambda_handler'
       Code:
-        ZipFile: |
-          import os
-          import json
-          import boto3
-          import decimal
-          from boto3.dynamodb.conditions import Key, Attr
-          dynamodb_table = os.environ['DYNAMODB_TABLE']
-          dynamodb_resource = boto3.resource('dynamodb')
-          dtable = dynamodb_resource.Table(dynamodb_table)
-          class DecimalEncoder(json.JSONEncoder):
-            def default(self, o):
-              if isinstance(o, decimal.Decimal):
-                return str(o)
-              if isinstance(o, set):
-                return list(o)
-              return super(DecimalEncoder, self).default(o)
-          def lambda_handler(event, context):
-            try:
-              params = event['queryStringParameters']
-              if 'request_id' not in params:
-                raise ValueError(f'request_id is a required field')
-              else:
-                request_id = event['queryStringParameters']['request_id']
-                payload = {'request_id': request_id}
-          
-              dynamodb_response = dtable.query(KeyConditionExpression=Key('request_id').eq(request_id))
-              item = dynamodb_response['Items'][0]
-
-              # Add status and sftp_location from item
-              payload['status'] = item['status']
-              if 'sftp_location' in item:
-                payload['sftp_location'] = item['sftp_location']
-              if 'job_detail' in item:
-                if 'record_count' in item['job_detail']:
-                  payload['record_count'] = int(item['job_detail']['record_count'])
-              return {
-                'statusCode': 200,
-                'headers': {'Content-Type': 'application/json'},
-                'body': json.dumps(payload,cls=DecimalEncoder)
-              }
-            except Exception as e:
-              print(json.dumps({'error': str(e)}))
-              return {
-                'statusCode': 500,
-                'headers': {'Content-Type': 'application/json'},
-                'body': json.dumps({'error': str(e)})
-              }
+        S3Bucket: !Ref HssSimulatorBucket
+        S3Key: 'assets/lambda/hss_readings_file_get_function/lambda.zip'
   ReadingsFileGetLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
@@ -748,6 +522,7 @@ Resources:
               - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${ReadingsFileGetLambdaFunction}:*:*'
   ReadingsFilePostLambdaFunction:
     Type: AWS::Lambda::Function
+    DependsOn: S3CopyInvoke
     Properties:
       Role: !GetAtt ReadingsFilePostLambdaRole.Arn
       Runtime: python3.9
@@ -757,45 +532,10 @@ Resources:
         Variables:
           SQS_QUEUE_URL: !Ref ReadingsFileSQSQueue
           DYNAMODB_TABLE: !Ref DynamoTable
-      Handler: 'index.lambda_handler'
+      Handler: 'lambda_function.lambda_handler'
       Code:
-        ZipFile: |
-          import os
-          import json
-          import uuid
-          import boto3
-          queue_url = os.environ['SQS_QUEUE_URL']
-          dynamodb_table = os.environ['DYNAMODB_TABLE']
-          sqs_client = boto3.client('sqs')
-          dynamodb_resource = boto3.resource('dynamodb')
-          dtable = dynamodb_resource.Table(dynamodb_table)
-          def lambda_handler(event, context):
-            try:
-              event_body = json.loads(event['body'])
-              # Validate event body
-              if 'start_date' not in event_body:
-                raise ValueError(f'start_date is a required field')
-              if 'end_date' not in event_body:
-                raise ValueError(f'end_date is a required field')
-              file_request = {
-                'request_id': event['requestContext']['requestId'],
-                'requested_payload': {'start_date': event_body['start_date'], 'end_date': event_body['end_date']}
-              }
-              response = sqs_client.send_message(QueueUrl=queue_url, MessageBody=json.dumps(file_request)) # Add request to queue
-              file_request.update({'status': 'queued'}) # Log request to DynamoDB
-              dynamodb_response = dtable.put_item(Item=file_request)
-              return {
-                'statusCode': 200,
-                'headers': {'Content-Type': 'application/json'},
-                'body': json.dumps({'request_id': event['requestContext']['requestId'], 'status': 'queued'})
-              }
-            except Exception as e:
-              print(json.dumps({'error': str(e)}))
-              return {
-                'statusCode': 500,
-                'headers': {'Content-Type': 'application/json'},
-                'body': json.dumps({'status': 'failed', 'error': str(e)})
-              }
+        S3Bucket: !Ref QSS3BucketName
+        S3Key: !Sub '${QSS3KeyPrefix}assets/lambda/hss_readings_file_post_function/lambda.zip'
   ReadingsFilePostLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
@@ -849,6 +589,7 @@ Resources:
               - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${ReadingsFilePostLambdaFunction}:*:*'
   ReadingsFileWorkerLambdaFunction:
     Type: AWS::Lambda::Function
+    DependsOn: S3CopyInvoke
     Properties:
       Role: !GetAtt ReadingsFileWorkerLambdaRole.Arn
       Runtime: python3.9
@@ -857,150 +598,16 @@ Resources:
       Environment:
         Variables:
           SQS_QUEUE_URL: !Ref ReadingsFileSQSQueue
-          BUCKET: !Ref HesSimulatorBucket
+          BUCKET: !Ref HssSimulatorBucket
           DYNAMODB_TABLE: !Ref DynamoTable
           REGION_NAME: !Ref AWS::Region
           GLUE_JOB_NAME: !Ref GlueJob
           TIMESTREAM_DATABASE: !If [ createTimestream, !Ref TimestreamDatabase, !Ref TimestreamDatabaseName ]
           TIMESTREAM_TABLE: !If [ createTimestream, !GetAtt TimestreamTable.Name, !Ref TimestreamTableName ]
-      Handler: 'index.lambda_handler'
+      Handler: 'lambda_function.lambda_handler'
       Code:
-        ZipFile: |
-          import os
-          import json
-          import math
-          import boto3
-          from datetime import datetime
-          bucket = os.environ['BUCKET']
-          dynamodb_table = os.environ['DYNAMODB_TABLE']
-          glue_job_name = os.environ['GLUE_JOB_NAME']
-          region_name = os.environ['REGION_NAME']
-          timestream_database = os.environ['TIMESTREAM_DATABASE']
-          timestream_table = os.environ['TIMESTREAM_TABLE']
-          s3_client = boto3.client('s3')
-          glue_client = boto3.client('glue')
-          query_client = boto3.client('timestream-query')
-          dynamodb_resource = boto3.resource('dynamodb')
-          dtable = dynamodb_resource.Table(dynamodb_table)
-          class Query(object):
-            def __init__(self, client):
-              self.client = client
-              self.paginator = client.get_paginator('query')
-            def run_query(self, query_string):
-              try:
-                all_pages = []
-                page_iterator = self.paginator.paginate(QueryString=query_string)
-                for page in page_iterator:
-                  all_pages.extend(self._parse_query_result(page))
-                return all_pages
-              except Exception as e:
-                print('Exception while running query:', e)
-            def _parse_query_result(self, query_result):
-              print(json.dumps(query_result['QueryStatus'], default=str))
-              all_rows = []
-              for row in query_result['Rows']:
-                all_rows.append(self._parse_row(query_result['ColumnInfo'], row))
-              return all_rows
-            def _parse_row(self, column_info, row):
-              row_data = {}
-              for j in range(len(row['Data'])):
-                row_data.update(self._parse_datum(column_info[j], row['Data'][j]))
-              return row_data
-          
-            def _parse_datum(self, info, datum):
-              if datum.get('NullValue', False):
-                return {info['Name']: None}
-              if 'ScalarType' in info['Type']: # If the column is of Scalar Type
-                return {info['Name']: datum['ScalarValue']}
-              else:
-                raise Exception('Unhandled column type')
-          def lambda_handler(event, context):
-            try:
-              # Parse lambda event
-              for record in event['Records']:
-                job_detail = {}
-                file_request = json.loads(record['body'])
-                request_id = file_request['request_id']
-                start_date = file_request['requested_payload']['start_date']
-                end_date = file_request['requested_payload']['end_date']
-                partition_query = f'''
-                  select
-                    min(time) time_min,
-                    max(time) time_max,
-                    count(distinct(time)) partition_count,
-                    count(time) record_count
-                  from {{timestream_database}}.{{timestream_table}}
-                  where time >= '{{start_date}}'
-                  and time <= '{{end_date}}'
-                ''' \
-                .format(
-                  timestream_database=timestream_database,
-                  timestream_table=timestream_table,
-                  start_date=start_date,
-                  end_date=end_date
-                )
-                query = Query(query_client)
-                query_output = query.run_query(partition_query)
-                time_min = str(query_output[0]['time_min'])
-                time_max = str(query_output[0]['time_max'])
-                partition_count = int(query_output[0]['partition_count'])
-                record_count = int(query_output[0]['record_count'])
-                job_detail['record_count'] = record_count
-                if record_count > 0:
-                  worker_cores = 4
-                  worker_count = math.ceil(partition_count/worker_cores)+1
-                  #Create string for list of jars in jars folder
-                  jars_folder = 'assets/jars'
-                  jars = []
-                  s3_response = s3_client.list_objects(Bucket=bucket, Prefix=jars_folder)
-                  for content in s3_response['Contents']:
-                    if content['Key'][-1:] != '/':
-                      jars.append(('/'.join(['s3:/',bucket,content['Key']])))
-                  jars_string = ','.join(jars)
-                  glue_job_args = {
-                    '--request_id': request_id,
-                    '--scriptLocation': 's3://' + bucket + '/assets/glue/timestream_to_s3.py',
-                    '--bucket': bucket,
-                    '--TempDir': 's3://' + bucket + '/temp/',
-                    '--start_date': time_min,
-                    '--end_date': time_max,
-                    '--extra-jars': jars_string,
-                    '--job-bookmark-option': 'job-bookmark-disable',
-                    '--timestream_database': timestream_database,
-                    '--timestream_table': timestream_table,
-                    '--partition_count': str(partition_count),
-                    '--dynamodb_table': dynamodb_table,
-                    '--region': region_name,
-                    '--enable-spark-ui': 'true',
-                    '--spark-event-logs-path': 's3://' + bucket + '/logs/sparkHistoryLogs'
-                  }
-                  # Start Glue Job
-                  glue_response = glue_client.start_job_run(
-                    JobName=glue_job_name,
-                    Arguments=glue_job_args,
-                    WorkerType='G.1X',
-                    NumberOfWorkers=worker_count
-                  )
-                  job_detail['run_id'] = glue_response['JobRunId']
-                  job_detail['args'] = glue_job_args
-                  status = 'submitted'
-                else:
-                  status = 'skipped'
-                # Update DynamoDB record
-                dynamodb_response = dtable.update_item(
-                  Key={'request_id': request_id},
-                  ExpressionAttributeNames={'#s': 'status'},
-                  ExpressionAttributeValues={':s': status,':j': job_detail},
-                  UpdateExpression="SET #s = :s, job_detail = :j"
-                )
-            except Exception as e:
-              print(json.dumps(str(e)))
-              dynamodb_response = dtable.update_item(
-                Key={'request_id': request_id},
-                ExpressionAttributeNames={'#s': 'status'},
-                ExpressionAttributeValues={':s': 'failed',':r': str(e)},
-                UpdateExpression="SET #s = :s, reason = :r",
-              )
+        S3Bucket: !Ref HssSimulatorBucket
+        S3Key: 'assets/lambda/hss_readings_file_worker_function/lambda.zip'
   ReadingsFileWorkerLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
@@ -1030,7 +637,7 @@ Resources:
           - Effect: 'Allow'
             Action:
               - 's3:ListBucket'
-            Resource: !Sub ${HesSimulatorBucket.Arn}
+            Resource: !Sub ${HssSimulatorBucket.Arn}
           - Effect: 'Allow'
             Action:
               - 'sqs:ReceiveMessage'
@@ -1079,14 +686,14 @@ Resources:
                 - 'glue.amazonaws.com'
         Version: '2012-10-17'
   GlueJobPolicy:
-    Type: AWS::IAM::Policy
     Metadata:
       cfn-lint:
         config:
           ignore_checks:
             - E9101
           ignore_reasons:
-            E9101: Use welcoming and inclusive language
+            E9101: 'AbortMultipartUpload is an s3 action and can not be renamed'
+    Type: AWS::IAM::Policy
     Properties:
       Roles:
         - !Ref GlueJobRole
@@ -1114,7 +721,7 @@ Resources:
               - 's3:ListBucket'
               - 's3:GetBucketLocation'
               - 's3:ListBucketMultipartUploads'
-            Resource: !Sub ${HesSimulatorBucket.Arn}
+            Resource: !Sub ${HssSimulatorBucket.Arn}
           - Effect: 'Allow'
             Action:
               - 's3:GetObject'
@@ -1122,7 +729,7 @@ Resources:
               - 's3:CreateMultipartUpload'
               - 's3:AbortMultipartUpload'
               - 's3:ListMultipartUploadParts'
-            Resource: !Sub ${HesSimulatorBucket.Arn}/*
+            Resource: !Sub ${HssSimulatorBucket.Arn}/*
           - Effect: 'Allow'
             Action:
               - 'logs:CreateLogGroup'
@@ -1145,7 +752,7 @@ Resources:
       Command:
         Name: 'glueetl'
         PythonVersion: '3'
-        ScriptLocation: !Sub s3://${HesSimulatorBucket}/assets/glue/timestream_to_s3.py
+        ScriptLocation: !Sub 's3://${HssSimulatorBucket}/assets/glue/scripts/timestream_to_s3.py'
       Role: !GetAtt GlueJobRole.Arn
   SFTPServer:
     Type: AWS::Transfer::Server
@@ -1171,7 +778,7 @@ Resources:
               - Effect: 'Allow'
                 Action:
                   - 's3:ListBucket'
-                Resource: !Sub ${HesSimulatorBucket.Arn}
+                Resource: !Sub ${HssSimulatorBucket.Arn}
               - Effect: Allow
                 Action:
                   - 's3:PutObject'
@@ -1179,13 +786,13 @@ Resources:
                   - 's3:GetObjectVersion'
                   - 's3:DeleteObject'
                   - 's3:DeleteObjectVersion'
-                Resource: !Sub '${HesSimulatorBucket.Arn}/*'
+                Resource: !Sub '${HssSimulatorBucket.Arn}/*'
   SFTPUser:
     Type: AWS::Transfer::User
     Properties:
       ServerId: !GetAtt SFTPServer.ServerId
       UserName: 'sftp-user'
-      HomeDirectory: !Sub '/${HesSimulatorBucket}/data/sftp'
+      HomeDirectory: !Sub '/${HssSimulatorBucket}/data/sftp'
       Policy: >
         {
           "Version": "2012-10-17",
