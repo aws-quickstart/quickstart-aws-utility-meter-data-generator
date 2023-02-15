@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'Device Data Generator (qs-1td65m52e)'
+Description: 'Device Data Generator (qs-1tsuk2plc)'
 Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
@@ -133,7 +133,7 @@ Parameters:
     MaxLength: 256
   SourceObjects:
     Type: String
-    Default: 'assets/lambda/s3_copy_function/lambda.zip, assets/lambda/ddg_orchestrator_function/lambda.zip, assets/lambda/ddg_worker_function/lambda.zip'
+    Default: 'assets/lambda/s3_copy_function/lambda.zip, assets/lambda/orchestrator_function/lambda.zip, assets/lambda/worker_function/lambda.zip'
   QSS3BucketName:
     Description:
       'Keep the default bucket unless you are customizing the template or assets in a new location.
@@ -325,7 +325,7 @@ Resources:
       Handler: 'lambda_function.lambda_handler'
       Code:
         S3Bucket: !Ref DdgBucket
-        S3Key: 'assets/lambda/ddg_worker_function/lambda.zip'
+        S3Key: 'assets/lambda/worker_function/lambda.zip'
   WorkerLogGroup:
     Type: 'AWS::Logs::LogGroup'
     Properties:
@@ -391,7 +391,7 @@ Resources:
       Handler: 'lambda_function.lambda_handler'
       Code:
         S3Bucket: !Ref DdgBucket
-        S3Key: 'assets/lambda/ddg_orchestrator_function/lambda.zip'
+        S3Key: 'assets/lambda/orchestrator_function/lambda.zip'
   OrchestratorLogGroup:
     Type: 'AWS::Logs::LogGroup'
     Properties:
@@ -422,7 +422,7 @@ Resources:
 Outputs:
   TimestreamDatabaseARN:
     Description: 'ARN of Timestream database'
-    Value: !If [ createTimestream, !GetAtt TimestreamTable.Arn, !Join [ '/', [ !Join [ ':', ['arn' , 'aws', 'timestream', !Ref AWS::Region, !Ref AWS::AccountId, 'database'] ] , !Ref TimestreamDatabaseName ] ] ]
+    Value: !If [ createTimestream, !GetAtt TimestreamDatabase.Arn, !Join [ '/', [ !Join [ ':', ['arn' , 'aws', 'timestream', !Ref AWS::Region, !Ref AWS::AccountId, 'database'] ] , !Ref TimestreamDatabaseName ] ] ]
     Export:
       Name: !Join [ ':', [ !Ref AWS::StackName, 'TimestreamDatabaseARN' ] ]
   TimestreamTableARN:

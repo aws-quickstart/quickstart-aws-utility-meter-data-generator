@@ -1,7 +1,5 @@
 general:
   s3_regional_buckets: true
-  #auth:
-  #  default: uat
 project:
   name: quickstart-aws-utility-meter-data-generator
   owner: michlitz@amazon.com
@@ -16,8 +14,8 @@ project:
     TimestreamCreation: 'Create New'
     TimestreamDatabaseName: 'devices'
     TimestreamTableName: 'readings'
-    TimestreamStackOwner: 'Headend System Simulator'
-    GenerationState: 'DISABLED'
+    TimestreamStackOwner: 'Device Data Generator'
+    GenerationState: 'ENABLED'
     GenerationInterval: 5
     TotalDevices: 1000
     DevicesPerWorker: 100
@@ -32,4 +30,4 @@ project:
     QSS3BucketRegion: $[taskcat_current_region]
 tests:
   default:
-    template: templates/workload.template.yaml
+    template: templates/device.data.generator.yaml
