@@ -131,9 +131,6 @@ Parameters:
     Default: 'readings'
     MinLength: 3
     MaxLength: 256
-  SourceObjects:
-    Type: String
-    Default: 'assets/lambda/s3_copy_function/lambda.zip, assets/lambda/orchestrator_function/lambda.zip, assets/lambda/worker_function/lambda.zip'
   QSS3BucketName:
     Description:
       'Keep the default bucket unless you are customizing the template or assets in a new location.
@@ -245,8 +242,13 @@ Resources:
       ServiceToken: !GetAtt S3CopyLambdaFunction.Arn
       SourceBucket: !Ref QSS3BucketName
       SourcePrefix: !Ref QSS3KeyPrefix
-      Objects: !Ref SourceObjects
       DestBucket: !Ref DdgBucket
+      Objects: !Join
+        - ', '
+        -
+          - 'assets/lambda/s3_copy_function/lambda.zip'
+          - 'assets/lambda/orchestrator_function/lambda.zip'
+          - 'assets/lambda/worker_function/lambda.zip'
   S3CopyLambdaFunction:
     Type: AWS::Lambda::Function
     Properties:
