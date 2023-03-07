@@ -1,3 +1,5 @@
 // Include any postdeployment steps here, such as steps necessary to test that the deployment was successful. If there are no postdeployment steps, leave this file empty.
 
 == Postdeployment steps
+
+After you deploy this Quick Start, simulated device data will start being inserted into Amazon Timestream at the interval designated during setup. You may modify the stack parameters at any time to enable/disable the generation, freqency, or number of records generated.
