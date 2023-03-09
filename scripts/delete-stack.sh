@@ -4,7 +4,7 @@ set -e
 
 REGION=${1:-us-east-1}
 BUCKETS=`aws s3 ls`
-STACK_NAME=meter-data-generator
+STACK_NAME=device-data-generator
 
 for bucket in $BUCKETS
 do
