@@ -10,7 +10,7 @@ image::../docs/deployment_guide/images/architecture_diagram.png[Architecture]
 As shown in <<architecture1>>, this Partner Solution sets up the following:
 
 * An Amazon EventBridge rule to invoke an orchestrator AWS Lambda function at a user-defined interval.
-* An orchestrator Lambda function to generate and insert jobs into an Amazon SQS worker queue.
+* An orchestrator Lambda function to generate and add jobs into an Amazon SQS worker queue.
 * An Amazon SQS worker queue to invoke a worker Lambda function for each message inserted.
-* A worker Lambda function to generate utility meter readings and insert batches of records into an Amazon Timestream table.
+* A worker Lambda function to generate utility meter readings and add batches of records to an Amazon Timestream table.
 * An optional Amazon Timestream database and table to store device data readings.
