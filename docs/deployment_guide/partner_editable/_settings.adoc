@@ -7,7 +7,7 @@
 :doc-year: 2023
 // :partner-contributors:
 // :other-contributors:
-:aws-contributors: Michael Litz, Sascha Janssen, and Sainath Bandhakavi, AWS
+:aws-contributors: Michael Litz, Sascha Janssen, and Sainath Bandhakavi, Amazon Web Services
 :aws-ia-contributors: Tony Bulding, AWS Integration & Automation team
 :deployment_time: 5 minutes
 :default_deployment_region: us-east-1
