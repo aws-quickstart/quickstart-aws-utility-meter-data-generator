@@ -2,4 +2,4 @@
 
 == Predeployment steps
 
-Please be sure to install the latest version of https://www.docker.com/[Docker Desktop^], as it is used to build the AWS Lambda functions in this Quick Start.
+Install the latest version of https://www.docker.com/[Docker Desktop^]. The solution uses Docker Desktop to build the AWS Lambda functions that insert jobs into the Amazon SQS queue and generate meter readings.

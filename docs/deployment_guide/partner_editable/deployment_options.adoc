@@ -2,4 +2,4 @@
 
 This Partner Solution provides the following deployment options:
 
-* https://qs_launch_permalink[Deploy {partner-product-short-name}^]. This option deploys {partner-product-short-name}.
+* https://fwd.aws/AGYPR?[Deploy {partner-product-short-name}^]. This option deploys {partner-product-short-name}.
