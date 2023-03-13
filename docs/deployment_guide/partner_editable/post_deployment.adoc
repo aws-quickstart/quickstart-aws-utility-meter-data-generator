@@ -2,4 +2,4 @@
 
 == Postdeployment steps
 
-After you deploy this Quick Start, simulated device data will start being inserted into Amazon Timestream at the interval designated during setup. You may modify the stack parameters at any time to enable/disable the generation, freqency, or number of records generated.
+After you deploy this Partner Solution, it begins to insert simulated device data into the Amazon Timestream database table at the interval you specify during deployment. You can modify the stack parameters at any time to enable or disable the generation, frequency, and number of records generated.
