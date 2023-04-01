@@ -157,6 +157,7 @@ Parameters:
       The prefix should end with a forward slash (/).'
 Conditions:
   createTimestream: !Equals [ !Ref TimestreamCreation, 'Create New']
+  UsingDefaultBucket: !Equals [ !Ref QSS3BucketName, 'aws-quickstart' ]
 Resources:
   TimestreamDatabase:
     Condition: createTimestream
@@ -259,7 +260,7 @@ Resources:
       ReservedConcurrentExecutions: 1
       Handler: 'lambda_function.lambda_handler'
       Code:
-        S3Bucket: !Ref QSS3BucketName
+        S3Bucket: !If [ UsingDefaultBucket, !Sub '${QSS3BucketName}-${AWS::Region}', !Ref QSS3BucketName ]
         S3Key: !Sub '${QSS3KeyPrefix}assets/lambda/s3_copy_function/lambda.zip'
   S3CopyLogGroup:
     Type: AWS::Logs::LogGroup
